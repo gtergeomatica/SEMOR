@@ -19,7 +19,7 @@ const double J2 = 1.082630e-3; // Second Gravitational Constant
 const double re = 6378137;	 // Equatorial radius
 
 
-							
+
 // Constructor
 IMUmechECEF::IMUmechECEF(){}
 
@@ -45,7 +45,7 @@ double IMUmechECEF::HeadingCorrection(double imuHeading, double gpsHeading) {
 }
 
 // Initializer
-void IMUmechECEF::InitializeMechECEF(vector<double> iniPOS, vector<double> iniLLH, vector<double> iniVEL, 
+void IMUmechECEF::InitializeMechECEF(vector<double> iniPOS, vector<double> iniLLH, vector<double> iniVEL,
 	vector<double> iniATT, vector<double> Fbias, vector<double> Gbias) {
 	// Initializing the struct
 	_att = iniATT;
@@ -67,7 +67,7 @@ void IMUmechECEF::InitializeMechECEF(vector<double> iniPOS, vector<double> iniLL
 	double LAx = -0.964, LAy = -0.924, LAz = -0.196;
 	_Lxyz = VectorXd::Zero(3);
 	_Lxyz(0) = LAx; _Lxyz(1) = LAy; _Lxyz(2) = LAz;
- 
+
 }
 
 // Computes gravitational acceleration ECEF components
@@ -90,7 +90,7 @@ VectorXd IMUmechECEF::gravityECEF(double X, double Y, double Z) {
 	return g;
 }
 
-// Tensor of Gravity Gradients 
+// Tensor of Gravity Gradients
 MatrixXd IMUmechECEF::TensorGravGrad(double X, double Y, double Z) {
 	MatrixXd Ne = MatrixXd::Zero(3, 3);
 	// Variables
@@ -115,25 +115,25 @@ MatrixXd IMUmechECEF::TensorGravGrad(double X, double Y, double Z) {
 // ECEF Mechanization of IMU
 void IMUmechECEF::MechanizerECEF(double dT, vector<double> acc, vector<double> gyr, vector<double> LLH) {
 	// Observation Arrangement
-   
+
 	vector<double> fib;
 	fib.push_back(acc.at(0) - _fbias.at(0)); fib.push_back(acc.at(1) - _fbias.at(1)); fib.push_back(acc.at(2) - _fbias.at(2));
- 
+
  //cout << "Ax : " << fib.at(0) << " Ay : " << fib.at(1) << " Az : " << fib.at(2) << endl ;
- 
+
 	vector<double> wib;
 	wib.push_back(gyr.at(0) - _gbias.at(0)); wib.push_back(gyr.at(1) - _gbias.at(1)); wib.push_back(gyr.at(2) - _gbias.at(2));
- 
+
  //cout << "Gx : " << wib.at(0) << " Gy : " << wib.at(1) << " Gz : " << wib.at(2) << endl ;
 
-  
+
 
 	// --- Constants ---
 	VectorXd om_eie = VectorXd::Zero(3); om_eie(2) = Om;
 
 	// --- Initializing ---
 	VectorXd Pos0 = VectorXd::Zero(3); Pos0 = std2eigVector(_pos);
-  
+
 	VectorXd Vel0 = VectorXd::Zero(3); Vel0 = std2eigVector(_vel);
 	VectorXd Att0 = VectorXd::Zero(3); Att0 = std2eigVector(_att);
 	MatrixXd Cbe0 = MatrixXd::Zero(3, 3); Cbe0 = _Cbe;
@@ -151,11 +151,11 @@ void IMUmechECEF::MechanizerECEF(double dT, vector<double> acc, vector<double> g
 	// --- Specific Force Transformation ---
 	VectorXd sf_eib = VectorXd::Zero(3);
 	sf_eib = (0.5 * (Cbe0 + Cbe)) * sf_bib;
- 
+
   //cout << sf_eib(0) << " | " << sf_eib(1) << " | " <<sf_eib(2) << endl;
 
 	// --- Gravity Vector in ECEF ---
-	VectorXd g_eb = VectorXd::Zero(3); 
+	VectorXd g_eb = VectorXd::Zero(3);
 	g_eb = gravityECEF(Pos0(0), Pos0(1), Pos0(2));
 
 	// --- Velocity Update ---
@@ -182,7 +182,7 @@ void IMUmechECEF::MechanizerECEF(double dT, vector<double> acc, vector<double> g
 	double yaw = euler.at(2);
  //cout << "yaw " << yaw << endl;
 	Att0(0) = roll; Att0(1) = pitch; Att0(2) = yaw;
- 
+
 	NormaliseAttitudeOnly(Att0);
  /*cout << "roll " << Att0(0) << endl;
  cout << "pitch " << Att0(1) << endl;
@@ -192,8 +192,8 @@ void IMUmechECEF::MechanizerECEF(double dT, vector<double> acc, vector<double> g
 	// Attitude
 	_att.clear();
 	_att = eigVector2std(Att0);
- 
-  //cout << "r : " << _att.at(0)*180.0/PI << " | p : " << _att.at(1)*180.0/PI << " | y : " << _att.at(2)*180.0/PI << endl;
+
+  cout << "r : " << _att.at(0)*180.0/PI << " | p : " << _att.at(1)*180.0/PI << " | y : " << _att.at(2)*180.0/PI << endl;
 	// Position
 	_pos.clear();
 	_pos = eigVector2std(pos_eeb);
@@ -201,7 +201,7 @@ void IMUmechECEF::MechanizerECEF(double dT, vector<double> acc, vector<double> g
 	// Velocity
 	_vel.clear();
 	_vel = eigVector2std(vel_eeb);
- cout << _vel.at(0) << " ; " << _vel.at(1) << " ; " << _vel.at(2) << endl;
+	//cout << _vel.at(0) << " ; " << _vel.at(1) << " ; " << _vel.at(2) << endl;
 	// Body to Earth DCM
 	_Cbe = Cbe;
 	// Specific Force in earth frame
@@ -209,4 +209,3 @@ void IMUmechECEF::MechanizerECEF(double dT, vector<double> acc, vector<double> g
 	// Tensor Gravity Gradient
 	_Ne = TensorGravGrad(_pos.at(0), _pos.at(1), _pos.at(2));
 }
- 

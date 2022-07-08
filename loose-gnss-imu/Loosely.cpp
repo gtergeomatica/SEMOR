@@ -29,7 +29,7 @@ double epochAfterRead;
 double lastGroupReadEpoch;
 
 
-IMUmechECEF MechECEF; 
+IMUmechECEF MechECEF;
 
 ifstream fimu;
 
@@ -98,7 +98,7 @@ void Loosely::read_imu(){
 		out << line << endl;
 		out.flush();
 	}
-	
+
 }
 
 void closeF(){
@@ -109,7 +109,8 @@ void closeF(){
 // A routine to facilitate IMU mechanization in ECEF
 void Loosely::SolutionIMU(ReaderIMU IMU, IMUmechECEF& MechECEF) {
 	// Compute time interval
-	_dTimu = IMU._IMUdata.imuTime - lastGroupReadEpoch; //Difference between current epoch and previous
+	_dTimu = IMU._IMUdata.imuTime - _epochIMU; //Difference between current epoch and previous
+	//printf("%lf\n", _dTimu);
 	// IMU Mechanization
   //cout << "2-->" << iniIMU._RPY.at(0)*180.0/PI << " | " << iniIMU._RPY.at(0)*180.0/PI << " | " << iniIMU._RPY.at(0)*180.0/PI << endl;
 	MechECEF.MechanizerECEF(_dTimu, IMU._IMUdata.Acc, IMU._IMUdata.Gyr, _LLH_o); //Update ECEF position adding to it accelerometer and gyroscope data (previous data is accumulated)
@@ -169,7 +170,7 @@ double radianToDegree(double r) {
 }
 
 gnss_sol_t ecef2geo(gnss_sol_t gnss){
-    
+
     //1
     // Output vector - Lat, Long, Height
 	// Variables
@@ -179,9 +180,9 @@ gnss_sol_t ecef2geo(gnss_sol_t gnss){
 	const double a = 6378137; const double e = 0.08181979;
 	// Compute Longitude
 	double lambda = atan2(y, x);
-	// Physical radius of the point 
+	// Physical radius of the point
 	double r = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
-	// Radius in the x-y plane 
+	// Radius in the x-y plane
 	double p = sqrt(pow(x, 2) + pow(y, 2));
 	// GEOcentric latitude (Initial Approx)
 	double phi_o = atan2(p, z); double phi_i = phi_o;
@@ -206,7 +207,7 @@ gnss_sol_t ecef2geo(gnss_sol_t gnss){
 	gnss.a = phi_i;
 	gnss.b = lambda;
 	gnss.c = h;
-	return gnss;    
+	return gnss;
 }
 
 void Loosely::get_imu_sol(gnss_sol_t* int_sol){
@@ -224,7 +225,7 @@ void Loosely::get_imu_sol(gnss_sol_t* int_sol){
 				// Initialize IMU Mechanization
         //cout << "1-->" << iniIMU._RPY.at(0)*180.0/PI << " | " << iniIMU._RPY.at(0)*180.0/PI << " | " << iniIMU._RPY.at(0)*180.0/PI << endl;
 				MechECEF.InitializeMechECEF(_ECEF_imu, _LLH_o, GNSSsol.velXYZ, iniIMU._RPY, iniIMU._ACCbias, iniIMU._GYRbias); //it initializes MechECEF with _ACCbias, _GYRbias and _RPY
-        
+
 				imu_ready = 1; //Tells client.c that it can read imu data
 				printf("SEMOR: End initialization\n");
 			}
@@ -251,7 +252,7 @@ void Loosely::get_imu_sol(gnss_sol_t* int_sol){
 
 	//Initialize IMU mechanization with initial position, initial velocity and biases
 	/*_ECEF_o = eigVector2std(double2eigVector((*int_sol).a, (*int_sol).b, (*int_sol).c));
-	_LLH_o = eigVector2std(ecef2geo(double2eigVector((*int_sol).a, (*int_sol).b, (*int_sol).c)));	
+	_LLH_o = eigVector2std(ecef2geo(double2eigVector((*int_sol).a, (*int_sol).b, (*int_sol).c)));
 	_ECEF_imu = _ECEF_o;
 	GNSSsol.velXYZ = eigVector2std(double2eigVector((*int_sol).va, (*int_sol).vb, (*int_sol).vc));*/
 
@@ -272,8 +273,8 @@ void Loosely::get_imu_sol(gnss_sol_t* int_sol){
 
 
 	//print_time();
-	
-	double group_time = 0.2;
+
+	double group_time = 0.1;
 	double next_time = epochAfterRead + group_time;
 	//epochAfterRead = _epochIMU;
 
@@ -281,15 +282,23 @@ void Loosely::get_imu_sol(gnss_sol_t* int_sol){
 	double avg_gx = 0, avg_gy = 0, avg_gz = 0;
 	int n = 0, nlocal = 0;
 	do {
+		gnss_sol_t llh = ecef2geo(*int_sol);
+		_LLH_o = eigVector2std(double2eigVector(llh.a, llh.b, llh.c));
+		SolutionIMU(OBSimu, MechECEF);	//this is the gnss+first imu data //Get position from current MechECEF state and IMU data just read - This has effects on: MechECEF e IMUsol
 
-		/* SolutionIMU(OBSimu, MechECEF);	//this is the gnss+first imu data //Get position from current MechECEF state and IMU data just read - This has effects on: MechECEF e IMUsol
+		(*int_sol).a = IMUsol.posXYZ.at(0);
+		(*int_sol).b = IMUsol.posXYZ.at(1);
+		(*int_sol).c = IMUsol.posXYZ.at(2);
+		(*int_sol).va = IMUsol.velXYZ.at(0);
+		(*int_sol).vb = IMUsol.velXYZ.at(1);
+		(*int_sol).vc = IMUsol.velXYZ.at(2);
+
 		_epochIMU = OBSimu._IMUdata.imuTime;
 		read_imu();
 		epochAfterRead = OBSimu._IMUdata.imuTime;
-		//_epochIMU = OBSimu._IMUdata.imuTime;
-		n++; */
+		n++;
 
-		avg_ax +=OBSimu._IMUdata.Acc.at(0);
+		/*avg_ax +=OBSimu._IMUdata.Acc.at(0);
 		avg_ay +=OBSimu._IMUdata.Acc.at(1);
 		avg_az +=OBSimu._IMUdata.Acc.at(2);
 
@@ -318,12 +327,12 @@ void Loosely::get_imu_sol(gnss_sol_t* int_sol){
 			OBSimu._IMUdata.Gyr.at(0) = avg_gx;
 			OBSimu._IMUdata.Gyr.at(1) = avg_gy;
 			OBSimu._IMUdata.Gyr.at(2) = avg_gz;
-      
+
 			gnss_sol_t llh = ecef2geo(*int_sol);
 			_LLH_o = eigVector2std(double2eigVector(llh.a, llh.b, llh.c));
-      
+
       //cout << avg_gz << endl ;
-      
+
 			SolutionIMU(OBSimu, MechECEF);
 			(*int_sol).a = IMUsol.posXYZ.at(0);
 			(*int_sol).b = IMUsol.posXYZ.at(1);
@@ -342,23 +351,25 @@ void Loosely::get_imu_sol(gnss_sol_t* int_sol){
 			avg_ax = avg_ay = avg_az = 0;
 			avg_gx = avg_gy = avg_gz = 0;
 			nlocal = 0;
-		}                                             	
+		}
 		//Update Time
 		_epochIMU = OBSimu._IMUdata.imuTime;
 		read_imu();
-		epochAfterRead = OBSimu._IMUdata.imuTime;
-	} while (_epochIMU <= (*int_sol).time.sec);
- 
+		epochAfterRead = OBSimu._IMUdata.imuTime;*/
+	} while (epochAfterRead <= (*int_sol).time.sec);
+
 		 /*cout << n << endl;
 		cout.flush();
 cout << "---------------------------------------------------" << endl;
 		cout.flush();*/
-	
-   
-	/*if(logs){
+
+
+	/* if(logs){
+		cout << n << endl;
+		cout.flush();
 		out << "---------------------------------------------------" << endl;
 		out.flush();
-	}*/ 
+	} */
 
 	//printf("next_time: %lf\n", next_time);
 
@@ -423,7 +434,7 @@ void Loosely::init_imu(gnss_sol_t fst_pos){
 	if(err != 0){
 		printf("ERRORE THREAD\n");
 	}
-	
+
 	read_imu(); //fill OBSimu
 	/* get_imu_data(buf);
 	line = string(buf);
@@ -444,7 +455,7 @@ void Loosely::init_imu(gnss_sol_t fst_pos){
 	// Initial Position in Geodetic and ENU
 	Vector3d h;
 	h << _ECEF_o.at(0), _ECEF_o.at(1), _ECEF_o.at(2);
-	_LLH_o = eigVector2std(ecef2geo(h));	
+	_LLH_o = eigVector2std(ecef2geo(h));
 
 	IMU_INI_TIME_END = _epochIMU+imu_init_epochs; // Time taken to initialize the imu  (first imu epoch + 300) (for example)
 

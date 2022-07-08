@@ -473,7 +473,7 @@ int get_imu_data_old(char buf[IMU_LENGTH]){
 			/*ax,ay,az, gx,gy,gz,*/
 			ax*acclUnits*gravity/*-avg_acc_x*/, ay*acclUnits*gravity/*-avg_acc_y*/, az*acclUnits*gravity/*-avg_acc_z*/,
 			gx*gyroUnits, gy*gyroUnits, gz*gyroUnits, stamp-last_stamp, n, sec1);
-		
+
 		last_stamp = stamp;
 
 		return 0;
@@ -484,7 +484,7 @@ int get_imu_data_old(char buf[IMU_LENGTH]){
 	return 1;
 }
 
-int get_imu_data(char line[IMU_LENGTH]){ 
+int get_imu_data(char line[IMU_LENGTH]){
 	int n;
 	if(need_setup){
 		setup();
@@ -542,7 +542,7 @@ int get_imu_data(char line[IMU_LENGTH]){
 		if (flags == 7)
 		{
 			flags = 0;
-			
+
 			struct timeval tv;
 			gettimeofday(&tv, NULL);
 			week = ((tv.tv_sec+LEAP_SECONDS-GPS_EPOCH))/(7*24*3600);
@@ -558,7 +558,7 @@ int get_imu_data(char line[IMU_LENGTH]){
 				gx*gyroUnits, gy*gyroUnits, gz*gyroUnits, stamp, n);*/
         -ax*acclUnits*gravity, -ay*acclUnits*gravity, -az*acclUnits*gravity,
 				gx*gyroUnits*3.1415926535898/180.0, gy*gyroUnits*3.1415926535898/180.0, gz*gyroUnits*3.1415926535898/180.0, stamp, n);
-			
+
 			last_stamp = stamp;
 
 			return 0;
