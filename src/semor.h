@@ -114,6 +114,7 @@ extern void close_semor(int status);
 extern "C"{
 #endif
 int get_imu_data(char line[IMU_LENGTH]);
+extern void imu_log(void);
 #ifdef __cplusplus
 }
 #endif

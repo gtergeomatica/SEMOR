@@ -34,6 +34,8 @@
 //char rtk_port_rtkrcv[6];
 //char ppp_port_rtkrcv[6];
 
+pthread_t imu_thread_id;
+
 gnss_sol_t sol[2]; /* GPS=0, GALILEO=1 */
 gnss_sol_t best;
 
@@ -628,6 +630,7 @@ void start_processing(void){
     int ret;
     int i;
     char path[3][PATH_MAX];
+    int err;
 
 
     //DEBUG
@@ -672,6 +675,9 @@ void start_processing(void){
         perror("SEMOR fopen()");
     }
     fflush(file);
+
+    err = pthread_create(&imu_thread_id, NULL, &imu_log, NULL);
+
 
     handle_connection();
 }

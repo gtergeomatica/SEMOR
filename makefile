@@ -6,8 +6,11 @@ semor.o:
 client.o:
 	gcc -c src/client.c -g -o bin/client.o
 
-semor: semor.o client.o
-	gcc bin/semor.o bin/client.o -o bin/semor -lm
+imu_log.o:
+	gcc -c src/imu_log.c -g -o bin/imu_log.o
+
+semor: semor.o client.o imu_log.o
+	gcc bin/semor.o bin/client.o bin/imu_log.o -o bin/semor -lm -lpthread
 
 clean:
 	-rm -f bin/semor.o
