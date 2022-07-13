@@ -12,8 +12,8 @@
 //Set default configuration
 int relative = 0;
 int logs=1;
-int debug=1;
-int coord_type = 0; //0:ecef, 1:llh
+int debug=0;
+int coord_type = 1; //0:ecef, 1:llh
 double init_bg_unc = 2.42406840554768e-05;
 double init_ba_unc = 0.048901633857000000;
 double psd_gyro  = 3.38802348178723e-09;

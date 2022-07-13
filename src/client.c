@@ -589,7 +589,7 @@ void process_solutions(int chk_sols){
             }
             break;
         case 2: // only GALILEO
-        printf("Only RTK for epoch: %d\n", sol[GALILEO].time.sec);
+            printf("Only PPP for epoch: %d\n", sol[GALILEO].time.sec);
             gnsscopy(&best, sol[GALILEO]);
             is_best_found = 1;
             if(coord_type){
@@ -736,6 +736,15 @@ int read_gnss(int fd, int* offset, char* buf, int buf_length){
     return nbytes;
 }
 
+void print_time(){
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	int week = ((tv.tv_sec+LEAP_SECONDS-GPS_EPOCH))/(7*24*3600);
+	double sec = (double)(((tv.tv_sec+LEAP_SECONDS-GPS_EPOCH))%(7*24*3600))+(tv.tv_usec / 1000000.0);
+	printf("%lf\n", sec);
+}
+
+
 void handle_connection(){
     struct addrinfo hints, *res;
     int status;
@@ -800,6 +809,9 @@ void handle_connection(){
                     continue;
                 }
                 nbytes = read_gnss(socketfd[i], &offset[i], buf[i], sizeof buf[i]);
+                print_time();
+
+
 
                 if(strstr(buf[i], "lat") || strstr(buf[i], "latitude") || strstr(buf[i], "ecef") || strlen(buf[i]) < 5){ //Check if the input string contains gnss data or if it is an empty line or header
                     offset[i] = 0;
