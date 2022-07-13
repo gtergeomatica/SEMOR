@@ -94,11 +94,14 @@ static double gettgd(int sat, const nav_t *nav, int type)
 /* test SNR mask -------------------------------------------------------------*/
 static int snrmask(const obsd_t *obs, const double *azel, const prcopt_t *opt)
 {
+    int f2;
+
     if (testsnr(0,0,azel[1],obs->SNR[0]*SNR_UNIT,&opt->snrmask)) {
         return 0;
     }
     if (opt->ionoopt==IONOOPT_IFLC) {
-        if (testsnr(0,1,azel[1],obs->SNR[1]*SNR_UNIT,&opt->snrmask)) return 0;
+        f2=seliflc(opt->nf,satsys(obs->sat,NULL));
+        if (testsnr(0,f2,azel[1],obs->SNR[f2]*SNR_UNIT,&opt->snrmask)) return 0;
     }
     return 1;
 }
@@ -107,12 +110,13 @@ static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt,
                      double *var)
 {
     double P1,P2,gamma,b1,b2;
-    int sat,sys;
+    int sat,sys,f2;
     
     sat=obs->sat;
     sys=satsys(sat,NULL);
     P1=obs->P[0];
-    P2=obs->P[1];
+    f2=seliflc(opt->nf,satsys(obs->sat,NULL));
+    P2=obs->P[f2];
     *var=0.0;
     
     if (P1==0.0||(opt->ionoopt==IONOOPT_IFLC&&P2==0.0)) return 0.0;
@@ -124,17 +128,17 @@ static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt,
     }
     if (opt->ionoopt==IONOOPT_IFLC) { /* dual-frequency */
         
-        if (sys==SYS_GPS||sys==SYS_QZS) { /* L1-L2,G1-G2 */
-            gamma=SQR(FREQL1/FREQL2);
+        if (sys==SYS_GPS||sys==SYS_QZS) { /* L1-L2 or L1-L5 */
+            gamma=f2==1?SQR(FREQL1/FREQL2):SQR(FREQL1/FREQL5);
             return (P2-gamma*P1)/(1.0-gamma);
         }
-        else if (sys==SYS_GLO) { /* G1-G2 */
-            gamma=SQR(FREQ1_GLO/FREQ2_GLO);
+        else if (sys==SYS_GLO) { /* G1-G2 or G1-G3 */
+            gamma=f2==1?SQR(FREQ1_GLO/FREQ2_GLO):SQR(FREQ1_GLO/FREQ2_GLO);
             return (P2-gamma*P1)/(1.0-gamma);
         }
-        else if (sys==SYS_GAL) { /* E1-E5b */
-            gamma=SQR(FREQL1/FREQE5b);
-            if (getseleph(SYS_GAL)) { /* F/NAV */
+        else if (sys==SYS_GAL) { /* E1-E5b, E1-E5a */
+            gamma=f2==1?SQR(FREQL1/FREQE5b):SQR(FREQL1/FREQL5);
+            if (f2==1&&getseleph(SYS_GAL)) { /* F/NAV */
                 P2-=gettgd(sat,nav,0)-gettgd(sat,nav,1); /* BGD_E5aE5b */
             }
             return (P2-gamma*P1)/(1.0-gamma);
@@ -179,7 +183,7 @@ static double prange(const obsd_t *obs, const nav_t *nav, const prcopt_t *opt,
             gamma=SQR(FREQs/FREQL5);
             b1=gettgd(sat,nav,0); /* TGD (m) */
             return P1-gamma*b1;
-    }
+        }
     }
     return P1;
 }
@@ -274,13 +278,12 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
     gtime_t time;
     double r,freq,dion=0.0,dtrp=0.0,vmeas,vion=0.0,vtrp=0.0,rr[3],pos[3],dtr,e[3],P;
     int i,j,nv=0,sat,sys,mask[NX-3]={0};
-    
-    trace(3,"resprng : n=%d\n",n);
-    
+
     for (i=0;i<3;i++) rr[i]=x[i];
     dtr=x[3];
     
     ecef2pos(rr,pos);
+    trace(3,"rescode: rr=%.3f %.3f %.3f\n",rr[0], rr[1], rr[2]);
     
     for (i=*ns=0;i<n&&i<MAXOBS;i++) {
         vsat[i]=0; azel[i*2]=azel[1+i*2]=resp[i]=0.0;
@@ -323,6 +326,8 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         
         /* pseudorange residual */
         v[nv]=P-(r+dtr-CLIGHT*dts[i*2]+dion+dtrp);
+        trace(4,"sat=%d: v=%.3f P=%.3f r=%.3f dtr=%.6f dts=%.6f dion=%.3f dtrp=%.3f\n",
+            sat,v[nv],P,r,dtr,dts[i*2],dion,dtrp);
         
         /* design matrix */
         for (j=0;j<NX;j++) {
@@ -337,7 +342,7 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         else if (sys==SYS_QZS) {v[nv]-=x[8]; H[8+nv*NX]=1.0; mask[5]=1;}
 #endif
         else mask[0]=1;
-        
+
         vsat[i]=1; resp[i]=v[nv]; (*ns)++;
         
         /* variance of pseudorange error */
@@ -398,9 +403,9 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
     v=mat(n+4,1); H=mat(NX,n+4); var=mat(n+4,1);
     
     for (i=0;i<3;i++) x[i]=sol->rr[i];
-    
+
     for (i=0;i<MAXITR;i++) {
-        
+
         /* pseudorange residuals (m) */
         nv=rescode(i,obs,n,rs,dts,vare,svh,nav,x,opt,ssat,v,H,var,azel,vsat,resp,
                    &ns);
@@ -409,7 +414,7 @@ static int estpos(const obsd_t *obs, int n, const double *rs, const double *dts,
             sprintf(msg,"lack of valid sats ns=%d",nv);
             break;
         }
-        /* weighted by Std */
+        /* weight by variance (lsq uses sqrt of weight */
         for (j=0;j<nv;j++) {
             sig=sqrt(var[j]);
             v[j]/=sig;
@@ -472,7 +477,7 @@ static int raim_fde(const obsd_t *obs, int n, const double *rs,
     
     for (i=0;i<n;i++) {
         
-        /* satellite exclution */
+        /* satellite exclusion */
         for (j=k=0;j<n;j++) {
             if (j==i) continue;
             obs_e[k]=obs[j];
@@ -585,8 +590,6 @@ static void estvel(const obsd_t *obs, int n, const double *rs, const double *dts
     double err=opt->err[4]; /* Doppler error (Hz) */
     int i,j,nv;
     
-    trace(3,"estvel  : n=%d\n",n);
-    
     v=mat(n,1); H=mat(4,n);
     
     for (i=0;i<MAXITR;i++) {
@@ -601,6 +604,7 @@ static void estvel(const obsd_t *obs, int n, const double *rs, const double *dts
         for (j=0;j<4;j++) x[j]+=dx[j];
         
         if (norm(dx,4)<1E-6) {
+            trace(3,"estvel : vx=%.3f vy=%.3f vz=%.3f, n=%d\n",x[0],x[1],x[2],n);
             matcpy(sol->rr+3,x,3,1);
             sol->qv[0]=(float)Q[0];  /* xx */
             sol->qv[1]=(float)Q[5];  /* yy */
@@ -664,7 +668,7 @@ extern int pntpos(const obsd_t *obs, int n, const nav_t *nav,
     /* satellite positons, velocities and clocks */
     satposs(sol->time,obs,n,nav,opt_.sateph,rs,dts,var,svh);
     
-    /* estimate receiver position with pseudorange */
+    /* estimate receiver position and time with pseudorange */
     stat=estpos(obs,n,rs,dts,var,svh,nav,&opt_,ssat,sol,azel_,vsat,resp,msg);
     
     /* RAIM FDE */

@@ -2394,7 +2394,10 @@ static int decode_msm7(rtcm_t *rtcm, int sys)
     }
     for (j=0;j<h.nsat;j++) { /* phaserangerate */
         rate =getbits(rtcm->buff,i,14); i+=14;
-        if (rate!=-8192) rr[j]=rate*1.0;
+        if (rate!=-8192) {
+            rr[j]=rate*1.0;
+            if (strstr(rtcm->opt,"-INVPRR")) rr[j] = -rr[j];
+        }
     }
     /* decode signal data */
     for (j=0;j<ncell;j++) { /* pseudorange */
@@ -2416,7 +2419,10 @@ static int decode_msm7(rtcm_t *rtcm, int sys)
     }
     for (j=0;j<ncell;j++) { /* phaserangerate */
         rrv=getbits(rtcm->buff,i,15); i+=15;
-        if (rrv!=-16384) rrf[j]=rrv*0.0001;
+        if (rrv!=-16384) {
+            rrf[j]=rrv*0.0001;
+            if (strstr(rtcm->opt,"-INVPRR")) rrf[j] = -rrf[j];
+        }
     }
     /* save obs data in msm message */
     save_msm_obs(rtcm,sys,&h,r,pr,cp,rr,rrf,cnr,lock,ex,half);

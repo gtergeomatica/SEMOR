@@ -507,7 +507,7 @@ static void decode_obsh(FILE *fp, char *buff, double ver, int *tsys,
             nav->utc_gps[6]=str2num(buff,18,6);
         }
     }
-    else if (strstr(label,"# OF SALTELLITES"    )) { /* opt */
+    else if (strstr(label,"# OF SATELLITES"    )) { /* opt */
         /* skip */ ;
     }
     else if (strstr(label,"PRN / # OF OBS"      )) { /* opt */
@@ -863,7 +863,7 @@ static int decode_obsdata(FILE *fp, char *buff, double ver, int mask,
             p[r[0]]=-1; p[r[1]]=-1;
         }
         else if (val[r[0]]!=0.0&&val[r[1]]==0.0) {
-            p[l[0]]=1; p[l[1]]=-1;
+            p[r[0]]=1; p[r[1]]=-1;
         }
         else if (val[r[0]]==0.0&&val[r[1]]!=0.0) {
             p[r[0]]=-1; p[r[1]]=1;
@@ -878,6 +878,7 @@ static int decode_obsdata(FILE *fp, char *buff, double ver, int mask,
     /* save observation data */
     for (i=0;i<ind->n;i++) {
         if (p[i]<0||(val[i]==0.0&&lli[i]==0)) continue;
+        if (p[i] >= NFREQ) continue;
         switch (ind->type[i]) {
             case 0: obs->P[p[i]]=val[i];
                     obs->code[p[i]]=ind->code[i];
@@ -1011,7 +1012,7 @@ static void set_index(double ver, int sys, const char *opt,
     /* list rejected observation types */
     for (i=0;i<n;i++) {
         if (!ind->code[i]||!ind->pri[i]||ind->pos[i]>=0) continue;
-        trace(3,"reject obs type: sys=%2d, obs=%s\n",sys,tobs[i]);
+        trace(4,"reject obs type: sys=%2d, obs=%s\n",sys,tobs[i]);
     }
     ind->n=n;
     
@@ -1153,7 +1154,7 @@ static int decode_eph(double ver, int sat, gtime_t toc, const double *data,
     sys=satsys(sat,NULL);
     
     if (!(sys&(SYS_GPS|SYS_GAL|SYS_QZS|SYS_CMP|SYS_IRN))) {
-        trace(3,"ephemeris error: invalid satellite sat=%2d\n",sat);
+        trace(4,"ephemeris error: invalid satellite sat=%2d\n",sat);
         return 0;
     }
     *eph=eph0;
@@ -1263,7 +1264,7 @@ static int decode_geph(double ver, int sat, gtime_t toc, double *data,
     trace(4,"decode_geph: ver=%.2f sat=%2d\n",ver,sat);
     
     if (satsys(sat,NULL)!=SYS_GLO) {
-        trace(3,"glonass ephemeris error: invalid satellite sat=%2d\n",sat);
+        trace(4,"glonass ephemeris error: invalid satellite sat=%2d\n",sat);
         return 0;
     }
     *geph=geph0;
@@ -1318,7 +1319,7 @@ static int decode_seph(double ver, int sat, gtime_t toc, double *data,
     trace(4,"decode_seph: ver=%.2f sat=%2d\n",ver,sat);
     
     if (satsys(sat,NULL)!=SYS_SBS) {
-        trace(3,"geo ephemeris error: invalid satellite sat=%2d\n",sat);
+        trace(4,"geo ephemeris error: invalid satellite sat=%2d\n",sat);
         return 0;
     }
     *seph=seph0;

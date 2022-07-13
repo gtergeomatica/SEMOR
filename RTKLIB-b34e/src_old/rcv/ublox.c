@@ -110,12 +110,10 @@ typedef enum { false, true } bool;
 
 #define P2_10       0.0009765625 /* 2^-10 */
 
-/* max std-dev for valid carrier-phases, current code is unable to correctly 
-   distinguish between Gen8 and Gen9 modules,so use Gen8 values for both */
+/* max std-dev for valid carrier-phases */
 #define MAX_CPSTD_VALID_GEN8 5       /* optimal value for Gen8 modules  */
-#define MAX_CPSTD_VALID_GEN9 5       /* temp value for Gen9 modules   */
-/* #define MAX_CPSTD_VALID_GEN9 8 */ /* optimal value for Gen9 modules  */
-#define CPSTD_SLIP 15           /* std-dev threshold for slip */
+#define MAX_CPSTD_VALID_GEN9 8       /* optimal value for Gen9 modules  */
+#define CPSTD_SLIP 15                /* std-dev threshold for slip */
 
 #define ROUND(x)    (int)floor((x)+0.5)
 
@@ -360,8 +358,8 @@ static int decode_rxmrawx(raw_t *raw)
     char *q,tstr[64];
     double tow,P,L,D,tn,tadj=0.0,toff=0.0;
     int i,j,k,idx,sys,prn,sat,code,slip,halfv,halfc,LLI,n=0,cpstd_valid,cpstd_slip;
-    int week,nmeas,ver,gnss,svid,sigid,frqid,lockt,cn0,cpstd,prstd,tstat;
-    int multicode=0;
+    int week,nmeas,ver,gnss,svid,sigid,frqid,lockt,cn0,cpstd=0,prstd=0,tstat;
+    int multicode=0, rcvstds=0;
 
     trace(4,"decode_rxmrawx: len=%d\n",raw->len);
     
@@ -396,8 +394,8 @@ static int decode_rxmrawx(raw_t *raw)
     /* max valid std-dev of carrier-phase (-MAX_STD_CP) */
     if ((q=strstr(raw->opt,"-MAX_STD_CP="))) {
         sscanf(q,"-MAX_STD_CP=%d",&cpstd_valid);
-    } 
-    else if (ver>=1) cpstd_valid=MAX_CPSTD_VALID_GEN9;  /* F9P */
+    }
+    else if (raw->rcvtype==1) cpstd_valid=MAX_CPSTD_VALID_GEN9;  /* F9P */
     else cpstd_valid=MAX_CPSTD_VALID_GEN8;  /* M8T, M8P */
 
     /* slip threshold of std-dev of carrier-phase (-STD_SLIP) */
@@ -406,6 +404,8 @@ static int decode_rxmrawx(raw_t *raw)
     } else cpstd_slip=CPSTD_SLIP;
     /* use multiple codes for each freq (-MULTICODE) */
     if ((q=strstr(raw->opt,"-MULTICODE"))) multicode=1;
+    /* write rcvr stdevs to unused rinex fields */
+    if ((q=strstr(raw->opt,"-RCVSTDS"))) rcvstds=1;
 
     /* time tag adjustment */
     if (tadj>0.0) {
@@ -423,12 +423,15 @@ static int decode_rxmrawx(raw_t *raw)
         frqid=U1(p+23);    /* freqId (fcn + 7) */
         lockt=U2(p+24);    /* locktime (ms) */
         cn0  =U1(p+26);    /* cn0 (dBHz) */
-        prstd=U1(p+27)&15; /* pseudorange std-dev */
-        cpstd=U1(p+28)&15; /* cpStdev (m) */
-        prstd=1<<(prstd>=5?prstd-5:0); /* prstd=2^(x-5) */
+        if (rcvstds) {
+            prstd=U1(p+27)&15; /* pseudorange std-dev */
+            cpstd=U1(p+28)&15; /* cpStdev (m) */
+            prstd=1<<(prstd>=5?prstd-5:0); /* prstd=2^(x-5) */
+        }
         tstat=U1(p+30);    /* trkStat */
         if (!(tstat&1)) P=0.0;
         if (!(tstat&2)||L==-0.5||cpstd>cpstd_valid) L=0.0; /* invalid phase */
+        if (sigid>1) raw->rcvtype=1;  /* flag as Gen9 receiver */
 
         if (!(sys=ubx_sys(gnss))) {
             trace(2,"ubx rxmrawx: system error gnss=%d\n", gnss);
@@ -904,7 +907,7 @@ static int decode_enav(raw_t *raw, int sat, int off)
         trace(2,"ubx rxmsfrbx enav length error: sat=%d len=%d\n",sat,raw->len);
         return -1;
     }
-    if (raw->len<44+off) return 0; /* E5b I/NAV */
+    if (raw->len<36+off) return 0; /* E5b I/NAV */
     
     for (i=0;i<8;i++,p+=4) {
         setbitu(buff,32*i,32,U4(p));
@@ -1308,6 +1311,8 @@ static int sync_ubx(uint8_t *buff, uint8_t data)
 *          -TADJ=tint : adjust time tags to multiples of tint (sec)
 *          -STD_SLIP=std: slip by std-dev of carrier phase under std
 *          -MAX_CP_STD=std: max std-dev of carrier phase
+*          -MULTICODE :  preserve multiple signal codes for single freq
+*          -RCVSTDS :  save receiver stdevs to unused rinex fields
 
 *
 *          The supported messages are as follows.

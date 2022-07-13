@@ -3261,7 +3261,7 @@ extern int execcmd(const char *cmd)
     
     si.cb=sizeof(si);
     sprintf(cmds,"cmd /c %s",cmd);
-    if (!CreateProcess(NULL,(LPTSTR)cmds,NULL,NULL,FALSE,CREATE_NO_WINDOW,NULL,
+    if (!CreateProcessA(NULL,(LPTSTR)cmds,NULL,NULL,FALSE,CREATE_NO_WINDOW,NULL,
                        NULL,&si,&info)) return -1;
     WaitForSingleObject(info.hProcess,INFINITE);
     if (!GetExitCodeProcess(info.hProcess,&stat)) stat=-1;

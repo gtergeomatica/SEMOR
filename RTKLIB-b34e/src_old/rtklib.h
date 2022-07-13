@@ -59,7 +59,7 @@ extern "C" {
 
 #define VER_RTKLIB  "demo5"             /* library version */
 
-#define PATCH_LEVEL "b34e"               /* patch level */
+#define PATCH_LEVEL "b34f.1"               /* patch level */
 
 #define COPYRIGHT_RTKLIB \
             "Copyright (C) 2007-2020 T.Takasu\nAll rights reserved."
@@ -1163,7 +1163,6 @@ typedef struct {        /* RTK control/result type */
     int nfix;           /* number of continuous fixes of ambiguity */
     int excsat;         /* index of next satellite to be excluded for partial ambiguity resolution */
     int nb_ar;          /* number of ambiguities used for AR last epoch */
-	double com_bias;    /* phase bias common between all sats (used to be distributed to all sats */
     char holdamb;       /* set if fix-and-hold has occurred at least once */
     ambc_t ambc[MAXSAT]; /* ambiguity control */
     ssat_t ssat[MAXSAT]; /* satellite status */
@@ -1201,6 +1200,7 @@ typedef struct {        /* receiver raw data control type */
     uint8_t buff[MAXRAWLEN]; /* message buffer */
     char opt[256];      /* receiver dependent options */
     int format;         /* receiver stream format */
+    int rcvtype;        /* receiver type within format */
     void *rcv_data;     /* receiver dependent data */
 } raw_t;
 
@@ -1482,6 +1482,7 @@ EXPORT int ionocorr(gtime_t time, const nav_t *nav, int sat, const double *pos,
                     const double *azel, int ionoopt, double *ion, double *var);
 EXPORT int tropcorr(gtime_t time, const nav_t *nav, const double *pos,
                     const double *azel, int tropopt, double *trp, double *var);
+EXPORT int seliflc(int optnf, int sys);
 
 /* antenna models ------------------------------------------------------------*/
 EXPORT int  readpcv(const char *file, pcvs_t *pcvs);

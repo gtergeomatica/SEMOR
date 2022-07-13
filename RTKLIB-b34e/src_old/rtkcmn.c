@@ -3699,6 +3699,11 @@ extern double ionppp(const double *pos, const double *azel, double re,
     }
     return 1.0/sqrt(1.0-rp*rp);
 }
+/* select iono-free linear combination (L1/L2 or L1/L5) ----------------------*/
+extern int seliflc(int optnf,int sys)
+{
+    return((optnf==2||sys==SYS_GLO||sys==SYS_CMP)?1:2);
+}
 /* troposphere model -----------------------------------------------------------
 * compute tropospheric delay by standard atmosphere and saastamoinen model
 * args   : gtime_t time     I   time

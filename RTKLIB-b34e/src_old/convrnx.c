@@ -342,6 +342,9 @@ static void setopt_file(int format, char **paths, int n, const int *mask,
         if (!mask[j]) continue;
         sprintf(opt->comment[i++],"log: %.58s",paths[j]);
     }
+    if (*opt->rcvopt) {
+        sprintf(opt->comment[i++], "options: %.54s", opt->rcvopt);
+    }
 }
 /* unset RINEX options comments ----------------------------------------------*/
 static void unsetopt_file(rnxopt_t *opt)

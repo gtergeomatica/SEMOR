@@ -420,9 +420,9 @@ static int startsvr(vt_t *vt)
         else cmds_periodic[i]=s2[i];
     }
     /* confirm overwrite */
-    /*for (i=3;i<8;i++) {
-        if (strtype[i]==STR_FILE&&!confwrite(vt,strpath[i])) return 0;
-    }*/
+    for (i=3;i<8;i++) {
+        /*if (strtype[i]==STR_FILE&&!confwrite(vt,strpath[i])) return 0;*/
+    }
     if (prcopt.refpos==4) { /* rtcm */
         for (i=0;i<3;i++) prcopt.rb[i]=0.0;
     }
@@ -1683,14 +1683,13 @@ int main(int argc, char **argv)
     }
     else {
         /* open device for local console */
-        
-        /*if (!(con[0]=con_open(0,dev))) {
+        if (!(con[0]=con_open(0,dev))) {
             fprintf(stderr,"console open error dev=%s\n",dev);
             if (moniport>0) closemoni();
             if (outstat>0) rtkclosestat();
             traceclose();
             return -1;
-        }*/
+        }
     }
     signal(SIGINT, sigshut); /* keyboard interrupt */
     signal(SIGTERM,sigshut); /* external shutdown signal */
@@ -1698,14 +1697,10 @@ int main(int argc, char **argv)
     signal(SIGHUP ,SIG_IGN);
     signal(SIGPIPE,SIG_IGN);
 
-    if(start){
-        startsvr(NULL);
-    }
-
     while (!intflg) {
         /* accept remote console connection */
-        /*accept_sock(sock,con);
-        sleepms(100);*/
+        accept_sock(sock,con);
+        sleepms(100);
     }
     /* stop rtk server */
     stopsvr(NULL);

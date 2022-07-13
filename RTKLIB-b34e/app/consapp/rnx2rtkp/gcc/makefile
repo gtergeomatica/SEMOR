@@ -2,12 +2,12 @@
 BINDIR  = /usr/local/bin
 SRC     = ../../../../src
 
-OPTS    = -DTRACE -DENAGLO -DENAQZS -DENAGAL -DENACMP -DENAIRN -DNFREQ=3
+OPTS    = -DTRACE -DENAGLO -DENAQZS -DENAGAL -DENACMP -DENAIRN -DNFREQ=5
 #OPTS    = -DTRACE -DENAGLO -DENAQZS -DENAGAL -DENACMP -DENAIRN -DNFREQ=5 -DIERS_MODEL
 #OPTS    = -DENAGLO -DENAQZS -DENAGAL -DENACMP -DNFREQ=2
 
 # for no lapack
-CFLAGS  = -Wall -O3 -ansi -pedantic -Wno-unused-but-set-variable -I$(SRC) $(OPTS) -g
+CFLAGS  = -Wall -O3 -ansi -std=c99 -pedantic -Wno-unused-but-set-variable -I$(SRC) $(OPTS) -g
 LDLIBS  = -lm -lrt
 #LDLIBS  = ../../../../lib/iers/gcc/iers.a -lgfortran -lm -lrt
 
@@ -27,7 +27,7 @@ LDLIBS  = -lm -lrt
 all        : rnx2rtkp
 rnx2rtkp   : rnx2rtkp.o rtkcmn.o rinex.o rtkpos.o postpos.o solution.o
 rnx2rtkp   : lambda.o geoid.o sbas.o preceph.o pntpos.o ephemeris.o options.o
-rnx2rtkp   : ppp.o ppp_ar.o rtcm.o rtcm2.o rtcm3.o rtcm3e.o ionex.o tides.o
+rnx2rtkp   : ppp.o ppp_ar.o rtcm.o rtcm2.o rtcm3.o rtcm3e.o ionex.o tides.o ionomitigation.o mdpweight.o koulouri.o park.o
 
 rnx2rtkp.o : ../rnx2rtkp.c
 	$(CC) -c $(CFLAGS) ../rnx2rtkp.c
@@ -71,6 +71,14 @@ ionex.o    : $(SRC)/ionex.c
 	$(CC) -c $(CFLAGS) $(SRC)/ionex.c
 tides.o    : $(SRC)/tides.c
 	$(CC) -c $(CFLAGS) $(SRC)/tides.c
+ionomitigation.o: $(SRC)/ionomitigation.c
+	$(CC) -c $(CFLAGS) $(SRC)/ionomitigation.c
+mdpweight.o: $(SRC)/mdpweight.c
+	$(CC) -c $(CFLAGS) $(SRC)/mdpweight.c
+koulouri.o: $(SRC)/koulouri.c
+	$(CC) -c $(CFLAGS) $(SRC)/koulouri.c
+park.o: $(SRC)/park.c
+	$(CC) -c $(CFLAGS) $(SRC)/park.c
 
 rnx2rtkp.o : $(SRC)/rtklib.h
 rtkcmn.o   : $(SRC)/rtklib.h
@@ -93,6 +101,10 @@ rtcm3.o    : $(SRC)/rtklib.h
 rtcm3e.o   : $(SRC)/rtklib.h
 ionex.o    : $(SRC)/rtklib.h
 tides.o    : $(SRC)/rtklib.h
+ionomitigation.o    : $(SRC)/rtklib.h
+mdpweight.o : $(SRC)/rtklib.h
+koulouri.o : $(SRC)/rtklib.h
+park.o : $(SRC)/rtklib.h
 
 CMD1    = ./rnx2rtkp
 INPUT11 = ../../../test/data/rinex/07590920.05o ../../../test/data/rinex/30400920.05n

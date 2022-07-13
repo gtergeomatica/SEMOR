@@ -38,6 +38,7 @@ pthread_t imu_thread_id;
 
 gnss_sol_t sol[2]; /* GPS=0, GALILEO=1 */
 gnss_sol_t best;
+//gnss_sol_t best_old;
 
 gnss_sol_t initial_pos; //initial position for imu initialization
 
@@ -58,15 +59,192 @@ int first_time = 1;
 
 char log_dir[PATH_MAX/2];
 
-const double PI = 3.14159;
+const double PI = 3.1415926535; //3.14159;
 
 
 double radianToDegree(double r) {
   return r * (180 / PI);
 }
+/* HUGO */
+/*gnss_sol_t ecef2geo_(gnss_sol_t gnss){
+  //gives std deviations in ° for lat and lng, and in m for h
+	// Variables
+	double x, y, z;
+  double lat_P1, lng_P1, h_P1;
+  double lat_P2, lng_P2, h_P2;
+  double slat, slng, sh;
+
+
+  double x_P1 = gnss.a;
+  double y_P1 = gnss.b;
+  double z_P1 = gnss.c;
+  double sx = gnss.sda;
+  double sy = gnss.sdb;
+  double sz = gnss.sdc;
+
+  // printf("%lf | ", gnss.a);
+  // printf("%lf | ", gnss.b);
+  // printf("%lf | ", gnss.c);
+  printf("%lf | ", gnss.sda);
+  printf("%lf | ", gnss.sdb);
+  printf("%lf || ", gnss.sdc);
+
+  double x_P2 = x_P1 + sx;
+  double y_P2 = y_P1 + sy;
+  double z_P2 = z_P1 + sz;
+// Point n°1
+  x = x_P1; y = y_P1; z = z_P1;
+	// Semi Major Axis and Eccentricity
+	const double a = 6378137; const double e = 0.08181919;
+	// Compute Longitude
+	double lambda = atan2(y, x);
+	// Physical radius of the point
+	double r = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
+	// Radius in the x-y plane
+	double p = sqrt(pow(x, 2) + pow(y, 2));
+	// GEOcentric latitude (Initial Approx)
+	double phi_o = atan2(p, z); double phi_i = phi_o;
+	// Radius of curvature in the prime vertical
+	double Rn;
+	// Height
+	double h;
+	// Loop
+	for (unsigned i = 0; i < 3; i++) {
+		// Recalculate Radius of curvature in the prime vertical
+		Rn = a / sqrt(1 - (e * e * sin(phi_i) * sin(phi_i)));
+		// Recalculate Height
+		h = (p / cos(phi_i)) - (Rn);
+		// Recalculate Latitude
+		phi_i = atan((z / p) * (pow((1 - ((pow(e, 2))*(Rn / (Rn + h)))), (-1))));
+	}
+	// Recalculate Height
+	h = (p / cos(phi_i)) - Rn;
+	// Populate output vector
+	lat_P1 = radianToDegree(phi_i);
+	lng_P1 = radianToDegree(lambda);
+	h_P1 = h;
+  gnss.a = lat_P1;
+  gnss.b = lng_P1;
+  gnss.c = h_P1;
+
+// Point n°2
+  x = x_P2; y = y_P2; z = z_P2;
+	// Compute Longitude
+    lambda = atan2(y, x);
+	// Physical radius of the point
+    r = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
+	// Radius in the x-y plane
+	p = sqrt(pow(x, 2) + pow(y, 2));
+	// GEOcentric latitude (Initial Approx)
+	phi_o = atan2(p, z); phi_i = phi_o;
+	// Loop
+	for (unsigned i = 0; i < 3; i++) {
+		// Recalculate Radius of curvature in the prime vertical
+		Rn = a / sqrt(1 - (e * e * sin(phi_i) * sin(phi_i)));
+		// Recalculate Height
+		h = (p / cos(phi_i)) - (Rn);
+		// Recalculate Latitude
+		phi_i = atan((z / p) * (pow((1 - ((pow(e, 2))*(Rn / (Rn + h)))), (-1))));
+	}
+	// Recalculate Height
+	h = (p / cos(phi_i)) - Rn;
+	// Populate output vector
+	lat_P2 = radianToDegree(phi_i);
+	lng_P2 = radianToDegree(lambda);
+	h_P2 = h;
+
+  slat = fabs(lat_P2 - lat_P1);
+  slng = fabs(lng_P2 - lng_P1);
+  sh = fabs(h_P2 - h_P1);
+
+  // printf("%lf | ", lat_P1);
+  // printf("%lf | ", lng_P1);
+  // printf("%lf | ", h_P1);
+  printf("%lf | ", slat);
+  printf("%lf | ", slng);
+  printf("%lf \n", sh);
+  gnss.sda = slat;
+  gnss.sdb = slng;
+  gnss.sdc = sh;
+
+  return gnss;
+
+}*/
 
 gnss_sol_t ecef2geo_(gnss_sol_t gnss){
-    
+  //gives std deviations in m with format E N U
+	// Variables
+	double x, y, z;
+  double lat_P1, lng_P1, h_P1;
+  double slat, slng, sh;
+
+
+  double x_P1 = gnss.a;
+  double y_P1 = gnss.b;
+  double z_P1 = gnss.c;
+  double sx = gnss.sda;
+  double sy = gnss.sdb;
+  double sz = gnss.sdc;
+
+  // printf("%lf | ", gnss.sda);
+  // printf("%lf | ", gnss.sdb);
+  // printf("%lf ||", gnss.sdc);
+/* Point n°1 */
+  x = x_P1; y = y_P1; z = z_P1;
+	// Semi Major Axis and Eccentricity
+	const double a = 6378137; const double e = 0.08181919;
+	// Compute Longitude
+	double lambda = atan2(y, x);
+	// Physical radius of the point
+	double r = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
+	// Radius in the x-y plane
+	double p = sqrt(pow(x, 2) + pow(y, 2));
+	// GEOcentric latitude (Initial Approx)
+	double phi_o = atan2(p, z); double phi_i = phi_o;
+	// Radius of curvature in the prime vertical
+	double Rn;
+	// Height
+	double h;
+	// Loop
+	for (unsigned i = 0; i < 3; i++) {
+		// Recalculate Radius of curvature in the prime vertical
+		Rn = a / sqrt(1 - (e * e * sin(phi_i) * sin(phi_i)));
+		// Recalculate Height
+		h = (p / cos(phi_i)) - (Rn);
+		// Recalculate Latitude
+		phi_i = atan((z / p) * (pow((1 - ((pow(e, 2))*(Rn / (Rn + h)))), (-1))));
+	}
+	// Recalculate Height
+	h = (p / cos(phi_i)) - Rn;
+	// Populate output vector
+	lat_P1 = radianToDegree(phi_i);
+	lng_P1 = radianToDegree(lambda);
+	h_P1 = h;
+  gnss.a = lat_P1;
+  gnss.b = lng_P1;
+  gnss.c = h_P1;
+
+  double phi = phi_i;
+  double lam = lambda;
+
+  gnss.sda = fabs(-sin(lam)*sx + cos(lam)*sy);
+  gnss.sdb = fabs(-cos(lam)*sin(phi)*sx - sin(lam)*sin(phi)*sy +cos(phi)*sz);
+  gnss.sdc = fabs(cos(lam)*cos(phi)*sx + sin(lam)*cos(phi)*sy + sin(phi)*sz);
+  //
+  // printf("%lf | ", gnss.sda);
+  // printf("%lf | ", gnss.sdb);
+  // printf("%lf \n", gnss.sdc);
+
+  return gnss;
+
+}
+
+/* HUGO END */
+
+
+
+/*gnss_sol_t ecef2geo_(gnss_sol_t gnss){
+
     //1
     // Output vector - Lat, Long, Height
 	// Variables
@@ -76,9 +254,9 @@ gnss_sol_t ecef2geo_(gnss_sol_t gnss){
 	const double a = 6378137; const double e = 0.08181979;
 	// Compute Longitude
 	double lambda = atan2(y, x);
-	// Physical radius of the point 
+	// Physical radius of the point
 	double r = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
-	// Radius in the x-y plane 
+	// Radius in the x-y plane
 	double p = sqrt(pow(x, 2) + pow(y, 2));
 	// GEOcentric latitude (Initial Approx)
 	double phi_o = atan2(p, z); double phi_i = phi_o;
@@ -101,8 +279,8 @@ gnss_sol_t ecef2geo_(gnss_sol_t gnss){
 	gnss.a = radianToDegree(phi_i);
 	gnss.b = radianToDegree(lambda);
 	gnss.c = h;
-	return gnss;    
-}
+	return gnss;
+}*/
 
 gnss_sol_t ecef2geo(gnss_sol_t gnss){
     //2
@@ -166,13 +344,13 @@ LocData_t get_data(){ //SiConsulting
     h_utc = info.tm_hour; */
 
     h = sec_today/3600;
-	
+
 	m = (sec_today -(3600*h))/60;
-	
+
 	s = (sec_today -(3600*h)-(m*60));
 
     sprintf(data.ui8TS, "%02d:%02d:%02d", h, m, s);
-    
+
     return data;
 }
 
@@ -233,10 +411,10 @@ gnss_sol_t str2gnss(char str[MAXSTR]){
 
 void gnss2str(char* str, gnss_sol_t gnss){
     /*sprintf(str, "%d %d %lf %lf %lf %d %d %lf %lf %lf %lf %lf %lf %f %f %lf %lf %lf", gnss.time.week,
-    gnss.time.sec, gnss.a, gnss.b, gnss.c, gnss.Q, gnss.ns, 
+    gnss.time.sec, gnss.a, gnss.b, gnss.c, gnss.Q, gnss.ns,
     gnss.sda, gnss.sdb, gnss.sdc, gnss.sdab, gnss.sdbc, gnss.sdca,
     gnss.age, gnss.ratio, gnss.va, gnss.vb, gnss.vc);*/
-    sprintf(str, "sec: %d, pos: %lf %lf %lf, std: %lf %lf %lf", gnss.time.sec, gnss.a, gnss.b, gnss.c, gnss.sda, gnss.sdb, gnss.sdc);
+    sprintf(str, "sec: %d, pos: %.9f %.9f %.9f, std: %.9f %.9f %.9f", gnss.time.sec, gnss.a, gnss.b, gnss.c, gnss.sda, gnss.sdb, gnss.sdc);
 }
 
 void gnsscopy(gnss_sol_t *dest, gnss_sol_t src){
@@ -260,10 +438,14 @@ void gnsscopy(gnss_sol_t *dest, gnss_sol_t src){
     (*dest).vc = src.vc;
 }
 
-void output(gnss_sol_t sol){
+void output(gnss_sol_t sol, int thrust){
     char sol1[MAXSTR];
     gnss2str(sol1, sol);
-    fprintf(file, "%s\n", (sol.time.week == 0) ? "no data" : sol1);
+    if(sol.time.week == 0){
+        fprintf(file, "no_data\n", (sol.time.week == 0) ? "no data" : sol1);
+    }else{
+        fprintf(file, "%s, thrust:%d\n", sol1, thrust); //if thrust > 0  OK, if thrust = 0 NOT OK
+    }
     fflush(file);
 }
 
@@ -348,10 +530,11 @@ int get_best_sol2(int sol1_idx, int sol2_idx){ //if 2 gnss solutions available -
 
 void process_solutions(int chk_sols){
     int i;
-    int is_best_found = 1;
+    int is_best_found = 0;
+    //gnss_sol_t tmp;
 
     if(debug){
-        for(i = 0; i < 2; i++){ //for each gnss solution check if its epoch is higher than the "seconds" variable, if so wait next iterations 
+        for(i = 0; i < 2; i++){ //for each gnss solution check if its epoch is higher than the "seconds" variable, if so wait next iterations
         //before displaying the solution till epochs are equal
             if(sol[i].time.sec > seconds){
                 if(!wait_read[i])
@@ -372,35 +555,67 @@ void process_solutions(int chk_sols){
     }
 
     switch(chk_sols){ //Get best solution between GPS, GALILEO, IMU
-        case 0: //no solutions, return
-            return;
+        case 0: //no solutions for this epoch
+            /*if(best_old.time.week != 0){ //if i have 2 previous solutions
+                gnsscopy(&tmp, best);
+                best.a = best.a + best.a-best_old.a;
+                best.b = best.b + best.b-best_old.b;
+                best.c = best.c + best.c-best_old.c;
+                best.time.sec++;
+                if(best.time.sec == 604801){
+                    best.time.week++;
+                    best.time.sec = 1;
+                }
+                //Best_old is previous best
+                best_old = tmp;
+                gnsscopy(&best_old, tmp);
+            }else{
+                return; //no previous solutions, return
+            }*/
+
+            //If no solutions I use the previous best solution but with a mark saying we can't thrust it
+            if(best.time.week != 0)
+                is_best_found = 1;
+            //Do not convert best to geodetic since it is already converted from previous epoch
+            printf("No solutions for this epoch, previous best used\n");
+            break;
         case 1: //only GPS
-            printf("Ony RTK for epoch: %d\n", sol[GPS].time.sec);
+            printf("Only RTK for epoch: %d\n", sol[GPS].time.sec);
             gnsscopy(&best, sol[GPS]);
             is_best_found = 1;
+            if(coord_type){
+                gnsscopy(&sol[GPS], ecef2geo_(sol[GPS]));
+                gnsscopy(&best, sol[GPS]);
+            }
             break;
         case 2: // only GALILEO
-        printf("Ony RTK for epoch: %d\n", sol[GALILEO].time.sec);
+        printf("Only RTK for epoch: %d\n", sol[GALILEO].time.sec);
             gnsscopy(&best, sol[GALILEO]);
             is_best_found = 1;
+            if(coord_type){
+                gnsscopy(&sol[GALILEO], ecef2geo_(sol[GALILEO]));
+                gnsscopy(&best, sol[GALILEO]);
+            }
             break;
         case 3: //GPS and GALILEO
             is_best_found = get_best_sol2(GPS, GALILEO);
             if(is_best_found){
-                printf("Both RTK and PPPfor epoch: %d, similar\n", sol[GPS].time.sec);
+                printf("Both RTK and PPP for epoch: %d, similar\n", sol[GPS].time.sec);
             }
             else{
-                printf("Both RTK and PPPfor epoch: %d, NOT similar\n", sol[GPS].time.sec);
+                printf("Both RTK and PPP for epoch: %d, NOT similar\n", sol[GPS].time.sec);
             }
             best.time.week = sol[GPS].time.week;
             best.time.sec = sol[GPS].time.sec;
-            break;
-    }
 
-    if(/*coord_type*/0){
-        if(sol[GPS].time.week != 0) gnsscopy(&sol[GPS], ecef2geo_(sol[GPS]));
-        if(sol[GALILEO].time.week != 0) gnsscopy(&sol[GALILEO], ecef2geo_(sol[GALILEO]));
-        gnsscopy(&best, ecef2geo_(best));
+            if(coord_type){
+                if(sol[GPS].time.week != 0) gnsscopy(&sol[GPS], ecef2geo_(sol[GPS]));
+                if(sol[GALILEO].time.week != 0) gnsscopy(&sol[GALILEO], ecef2geo_(sol[GALILEO]));
+                if(is_best_found){ //avoid to convert multiple times
+                    gnsscopy(&best, ecef2geo_(best));
+                }
+            }
+            break;
     }
 
     if(logs){
@@ -409,31 +624,42 @@ void process_solutions(int chk_sols){
     }
 
     //Here we have the solution
+    if(is_best_found) //if best is found, that is used
+        output(best, chk_sols);
+    else if(sol[GPS].time.week != 0){ //else RTK is used if present since it's more accurate
+        gnsscopy(&best, sol[GPS]);
+        output(best, chk_sols);
 
-    //Convert the position from ecef to geodetic
-    if(is_best_found && chk_sols != 1){
-        output(best);
-        /*printf("A\n");
-        printf("x: %lf, y: %lf, z: %lf\n", best.a, best.b,best.c);
-        printf("-----\n");
-        printf("l: %lf, l: %lf, h: %lf\n", res.dLat, res.dLon, res.dHeigth);
-        gnss_sol_t prova = ecef2geo_(best);
-        printf("l: %lf, l: %lf, h: %lf\n", prova.a, prova.b, prova.c);*/
+    }
+    else if(sol[GALILEO].time.week != 0){ //else PPP is used if present
+        gnsscopy(&best, sol[GALILEO]);
+        output(best, chk_sols);
+
+    }
+
+    /* if(is_best_found && chk_sols != 1){
+        output(best, chk_sols);
     }else if(sol[GPS].time.week != 0){
         //DA CAPIRE MEGLIO COSA FARE QUI
         gnsscopy(&best, sol[GPS]);
-        output(best);
+        output(best, chk_sols);
 
     }else{
         best.a = -1;
         fprintf(file, "no-data\n");
-    }
-    fflush(file);
+        fflush(file);
+    } */
 
     //Flag solutions as already used
     sol[GPS].time.week = 0;
     sol[GALILEO].time.week = 0;
     best.time.week = 0;
+    best.time.sec++;
+    if(best.time.sec == 604801){
+        best.time.week++;
+        best.time.sec = 1;
+    }
+
 
 }
 void check_termination(){
@@ -451,15 +677,15 @@ void setup_tcp_socket(int* fd, char port[6]){
     memset(&hints, 0, sizeof hints);
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
-    hints.ai_family = AF_INET; 
+    hints.ai_family = AF_INET;
 
-    
+
     if ((status = getaddrinfo(NULL, port, &hints, &res)) != 0) {
         fprintf(stderr, "SEMOR: getaddrinfo: %s\n", gai_strerror(status));
         close_semor(1);
     }
     *fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    
+
     if(*fd == -1){
         perror("SEMOR socket()");
         close_semor(1);
@@ -528,7 +754,7 @@ void handle_connection(){
     int first_input = 0;
 
     printf("SEMOR: Start initialization. Please wait...\n");
-    
+
     //Initialize input file descriptors
     if(debug){
         socketfd[GPS] = open(GPS_FILE, O_RDONLY);
@@ -567,7 +793,7 @@ void handle_connection(){
                 //strcpy(buf[i], "");
                 //memset(buf[i], 0, sizeof buf);
                 //strncpy(dest_string,"",strlen(dest_string));
-            usleep(150000); //gives time to the solutions to be read (if one of them is late)
+            usleep(300000); //gives time to the solutions to be read (if one of them is late)
             //ret = poll(fds, 3, timeout_msecs);
             if(1/*fds[i].revents & POLLIN*/){
                 if(debug && wait_read[i]){ //Don't read solution i (0:GPS, 1:GALILEO) if the solution in the previous iterations has a higher epoch than "seconds" variable
@@ -681,4 +907,3 @@ void start_processing(void){
 
     handle_connection();
 }
-

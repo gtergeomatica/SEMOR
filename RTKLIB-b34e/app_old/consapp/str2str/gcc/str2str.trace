@@ -1,8 +1,0 @@
-3     0.000: strsetdir: dir=
-3     0.000: strsetproxy: addr=
-3     0.000: strsvrstart:
-3     0.000: strinitcom:
-3     0.000: strsetopt: opt=10000 10000 2000 32768 30 0 0 0
-3     0.000: stropen: type=1 mode=3 path=ttyS0
-3     0.000: openserial: path=ttyS0 mode=3
-1     0.000: openserial: /dev/ttyS0 open error (13) dev=/dev/ttyS0

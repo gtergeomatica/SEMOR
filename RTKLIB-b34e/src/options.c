@@ -39,6 +39,8 @@ static double elmask_,elmaskar_,elmaskhold_;
 static double antpos_[2][3];
 static char exsats_[1024];
 static char snrmask_[NFREQ][1024];
+static char gterKoulouriBreaks[6][1024];
+static char gterKoulouriRisks[6][1024];
 
 /* system options table ------------------------------------------------------*/
 #define SWTOPT  "0:off,1:on"
@@ -63,8 +65,13 @@ static char snrmask_[NFREQ][1024];
 #define POSOPT  "0:llh,1:xyz,2:single,3:posfile,4:rinexhead,5:rtcm,6:raw"
 #define TIDEOPT "0:off,1:on,2:otl"
 #define PHWOPT  "0:off,1:on,2:precise"
+#define GTERIONOPT "0:off,1:kolouri,2:park"
 
+#ifdef WIN32
+opt_t sysopts[]={
+#else
 EXPORT opt_t sysopts[]={
+#endif
     {"pos1-posmode",    3,  (void *)&prcopt_.mode,       MODOPT },
     {"pos1-frequency",  3,  (void *)&prcopt_.nf,         FRQOPT },
     {"pos1-soltype",    3,  (void *)&prcopt_.soltype,    TYPOPT },
@@ -196,7 +203,48 @@ EXPORT opt_t sysopts[]={
     {"file-geexefile",  2,  (void *)&filopt_.geexe,      ""     },
     {"file-solstatfile",2,  (void *)&filopt_.solstat,    ""     },
     {"file-tracefile",  2,  (void *)&filopt_.trace,      ""     },
-    
+
+    {"gter-ftpserver",   2,  (void*)&prcopt_.gter_ftp_server, "" },
+    {"gter-im_model",   3,  (void*)&prcopt_.gter_im_model, GTERIONOPT },
+    /*{"gter-im_path",   2,  (void*)&prcopt_.gter_im_path, "" },*/
+    {"gter-im_h",   0,  (void*)&prcopt_.gter_im_h, "" },
+    {"gter-mdp_enable",   3,  (void*)&prcopt_.gter_mdp_enable, SWTOPT },
+    {"gter-mdp_coeff",   1,  (void*)&prcopt_.gter_mdp_coeff, "" },
+    {"gter-mdp_criterion",   0,  (void*)&prcopt_.gter_mdp_criterion, "" },
+    {"gter-mdp_thsnr",   1,  (void*)&prcopt_.gter_mdp_thsnr, "" },
+    {"gter-mdp_thmdp",   1,  (void*)&prcopt_.gter_mdp_thmdp, "" },
+    {"gter-mdp_nepochs",   0,  (void*)&prcopt_.gter_mdp_nepochs, "" },
+    {"gter-koulouri-breaks_S4_L1", 2,  (void*)&gterKoulouriBreaks[0],         "" },
+    {"gter-koulouri-breaks_S4_L2", 2,  (void*)&gterKoulouriBreaks[1],         "" },
+    {"gter-koulouri-breaks_S4_L5", 2,  (void*)&gterKoulouriBreaks[2],         "" },
+    {"gter-koulouri-breaks_SP_L1", 2,  (void*)&gterKoulouriBreaks[3],         "" },
+    {"gter-koulouri-breaks_SP_L2", 2,  (void*)&gterKoulouriBreaks[4],         "" },
+    {"gter-koulouri-breaks_SP_L5", 2,  (void*)&gterKoulouriBreaks[5],         "" },
+    {"gter-koulouri-risks_S4_L1", 2,  (void*)&gterKoulouriRisks[0],         "" },
+    {"gter-koulouri-risks_S4_L2", 2,  (void*)&gterKoulouriRisks[1],         "" },
+    {"gter-koulouri-risks_S4_L5", 2,  (void*)&gterKoulouriRisks[2],         "" },
+    {"gter-koulouri-risks_SP_L1", 2,  (void*)&gterKoulouriRisks[3],         "" },
+    {"gter-koulouri-risks_SP_L2", 2,  (void*)&gterKoulouriRisks[4],         "" },
+    {"gter-koulouri-risks_SP_L5", 2,  (void*)&gterKoulouriRisks[5],         "" },
+
+    { "gter-park-Bn_DLL_L1",   1,  (void*)&prcopt_.gter_park_bn_dll_l1, "" },
+    { "gter-park-Bn_DLL_L2",   1,  (void*)&prcopt_.gter_park_bn_dll_l2, "" },
+    { "gter-park-Bn_PLL_L1",   1,  (void*)&prcopt_.gter_park_bn_pll_l1, "" },
+    { "gter-park-Bn_PLL_L2",   1,  (void*)&prcopt_.gter_park_bn_pll_l2, "" },
+    { "gter-park-d",   1,  (void*)&prcopt_.gter_park_d, "" },
+    { "gter-park-eta_L1",   1,  (void*)&prcopt_.gter_park_eta_l1, "" },
+    { "gter-park-eta_L2",   1,  (void*)&prcopt_.gter_park_eta_l2, "" },
+    { "gter-park-k_PLL_L1",   1,  (void*)&prcopt_.gter_park_k_pll_l1, "" },
+    { "gter-park-k_PLL_L2",   1,  (void*)&prcopt_.gter_park_k_pll_l2, "" },
+    { "gter-park-fn_PLL_L1",   1,  (void*)&prcopt_.gter_park_fn_pll_l1, "" },
+    { "gter-park-fn_PLL_L2",   1,  (void*)&prcopt_.gter_park_fn_pll_l2, "" },
+    { "gter-park-sigma_osc",   1,  (void*)&prcopt_.gter_park_sigma_osc, "" },
+    { "gter-park-a",   1,  (void*)&prcopt_.gter_park_a, "" },
+    { "gter-park-S4",   1,  (void*)&prcopt_.gter_park_s4, "" },
+    { "gter-park-w_L1",   1,  (void*)&prcopt_.gter_park_w_l1, "" },
+    { "gter-park-w_L2",   1,  (void*)&prcopt_.gter_park_w_l2, "" },
+    { "gter-park-lambda1",   1,  (void*)&prcopt_.gter_park_lambda1, "" },
+    { "gter-park-lambda2",   1,  (void*)&prcopt_.gter_park_lambda2, "" },
     {"",0,NULL,""} /* terminator */
 };
 /* discard space characters at tail ------------------------------------------*/
@@ -396,7 +444,7 @@ static void buff2sysopts(void)
 {
     double pos[3],*rr;
     char buff[1024],*p,*id;
-    int i,j,sat,*ps;
+    int i,j,k,sat,*ps;
     
     prcopt_.elmin     =elmask_    *D2R;
     prcopt_.elmaskar  =elmaskar_  *D2R;
@@ -439,6 +487,41 @@ static void buff2sysopts(void)
             prcopt_.snrmask.mask[i][j++]=atof(p);
         }
     }
+
+    sprintf(prcopt_.gter_im_path, "%s", filopt_.tempdir);
+
+    for (i = 0; i < 2*NFREQ; i++)
+    {
+        /* koulouri breaks */
+        for (j = 0; j < MAX_KOULOURI_RISKS; j++) prcopt_.gter_koulouri_breaks[i][j] = -1.0;
+        strcpy(buff, gterKoulouriBreaks[i]);
+        for (p = strtok(buff, ","), j = 0; p && j < MAX_KOULOURI_RISKS; p = strtok(NULL, ",")) {
+            prcopt_.gter_koulouri_breaks[i][j++] = atof(p);
+        }
+
+        k = j;
+        /* koulouri risks */
+        for (j = 0; j < MAX_KOULOURI_RISKS; j++) prcopt_.gter_koulouri_risks[i][j] = -1.0;
+        strcpy(buff, gterKoulouriRisks[i]);
+        for (p = strtok(buff, ","), j = 0; p && j < MAX_KOULOURI_RISKS; p = strtok(NULL, ",")) {
+            prcopt_.gter_koulouri_risks[i][j++] = atof(p);
+        }
+        prcopt_.gter_n_valid_koulouri_risks[i] = k == j ? k : 0;
+    }
+
+    int invalid = 0;
+    for (i = 0; i < 2 * NFREQ; i++)
+    {
+        if (i == 2 || i == 5)
+            continue; /* farlok: remove this. Actually no check for L5 parameters*/
+
+        if (prcopt_.gter_n_valid_koulouri_risks[i] == 0)
+            invalid++;
+    }
+
+    if (prcopt_.gter_im_model == 1 &&  invalid > 0)
+        printf("Warning: incoherent number of Kolouri risks / breaks for %d frequencies!\n", invalid);
+
     /* number of frequency (4:L1+L5) TODO ????*/
     /*if (prcopt_.nf==4) {
         prcopt_.nf=3;

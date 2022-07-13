@@ -1327,6 +1327,7 @@ extern int init_raw(raw_t *raw, int format)
     for (i=0;i<MAXRAWLEN;i++) raw->buff[i]=0;
     raw->opt[0]='\0';
     raw->format=-1;
+    raw->rcvtype=0;
     
     raw->obs.data =NULL;
     raw->obuf.data=NULL;
