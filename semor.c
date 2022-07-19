@@ -7,48 +7,59 @@
 #include <sys/stat.h>
 #include "semor.h"
 
-#define MAX_LINE 256
+#define MAX_LINE 256 //max length of a SEMOR config's line
 
 //Set default configuration
-int relative = 0;
 int logs=1;
-int debug=1;
+int debug=0; //1: read from files (test/galileo.pos, test/gps.pos, test/imu.csv)
 double init_bg_unc = 2.42406840554768e-05;
 double init_ba_unc = 0.048901633857000000;
 double psd_gyro  = 3.38802348178723e-09;
 double psd_acce      =     2.60420170553977e-06;     // acce noise PSD (m^2/s^3)  
 double psd_bg        =     2.61160339323310e-14;     // gyro bias random walk PSD (rad^2/s^3)
 double psd_ba        =     1.66067346797506e-09;
-int sample_rate = 104; //in hz
-int imu_init_epochs =  20;//in seconds
-int imu_drift = 60;
+int sample_rate = 104; //in hz, sample rate of the IMU
+int imu_init_epochs =  20;//in seconds, in this interval SEMOR collects IMU data to initialize it by calculating precision errors and biases
+int imu_drift = 60; //in seconds, if during this interval only IMU solutions are available, SEMOR will terminate and it needs to be re-initialized (probably
+ //something is wrong in RTK or PPP solutions)
 
 char rtk_port_rtkrcv[6] = "8090";
 char ppp_port_rtkrcv[6] = "8091";
 
+//Next 3 variables represent the initial position of the device, the are needed for the IMU initialization process (leave the PID in that position
+//until the IMU is initialized)
 double init_x;
 double init_y;
 double init_z;
-int init_pos = 0; //7 if init_x, init_y and init_z are assigned with a value, semor stops otherwise
+int init_pos = 0; //if init_x, init_y and init_z are assigned with a value this value will be 7, if the value is not 7 SEMOR stops 
 
+//Paths of str2str and rtkrcv executables
 char str2str_path[PATH_MAX];
 char rtkrcv_path[PATH_MAX];
+
+//Path of RTK and PPP conf files
 char rtkconf[PATH_MAX];
 char pppconf[PATH_MAX];
 
+//Path to the root SEMOR project directory
 char root_path[PATH_MAX-200];
 
+//-in argument of str2str
 char str2str_in[30] = "tcpcli://192.168.2.91:8081";
+
+//-out arguments of str2str
 char str2str_out1_port[16] = "tcpsvr://:8085";
 char str2str_out2_port[16] = "tcpsvr://:8086";
 
 
+//Close standard input and output of the RTKLIB processes (created with fork)
 void close_io(void){
     close(STDIN_FILENO);
     close(STDOUT_FILENO);
     close(STDERR_FILENO);
 }
 
+//Read one line of the config file
 void read_conf_line(char line[MAX_LINE]){
     int i;
     char *token;
@@ -59,7 +70,7 @@ void read_conf_line(char line[MAX_LINE]){
     if(strstr(token, "rtkrcv-port-rtk")){
         strcpy(rtk_port_rtkrcv, strtok(NULL, delim));
         if(rtk_port_rtkrcv[strlen(rtk_port_rtkrcv)-1] == '\n')
-            rtk_port_rtkrcv[strlen(rtk_port_rtkrcv)-1] = '\0';
+            rtk_port_rtkrcv[strlen(rtk_port_rtkrcv)-1] = '\0'; //remove new line
         return;
     }
 
@@ -182,9 +193,8 @@ void read_conf_line(char line[MAX_LINE]){
 }
 
 int main(int argc, char *argv[]){
+
     char cmd;
-    //pid_t str2str_pid, rtkrcv1_pid, rtkrcv2_pid;
-    int isset_first_pos;
     int imu_ready;
 
     //Setup from configuration
@@ -192,26 +202,17 @@ int main(int argc, char *argv[]){
     char line[MAX_LINE];
 	char cwd[PATH_MAX-400];
     char semor_conf_path[PATH_MAX];
+    
+    //pids.txt file to manually kill previous executed processes if needed (in case someone forgots to soft-terminate SEMOR entering 'q')
     char pids_file[PATH_MAX];
 
     char path[60];
-    /*if(argc == 2 && argv[1][0] == '-' && argv[1][1] == 'r'){
-        relative = 1;
-        sprintf(str2str_path, "RTKLIB-b34e/app/consapp/str2str/gcc/str2str");
-        sprintf(rtkrcv_path, "RTKLIB-b34e/app/consapp/rtkrcv/gcc/rtkrcv");
-        sprintf(rtkconf, "conf/rtk4pid.conf");
-        sprintf(pppconf, "conf/ppp4pid_navcast.conf");
-        sprintf(semor_conf_path, "bin/semor.conf");
-        sprintf(pids_file, "pids.txt");
-    }*/
     {
         sprintf(path, "/proc/%d/exe", getpid());
         if(readlink(path, root_path, PATH_MAX) == -1){
             perror("SEMOR: readlink()");
             printf("\n");
-            printf("Possible workaround:\n");
-            printf("Go exactly in the SEMOR root folder and run semor with the argument '-r' (use relative paths)\n");
-            printf("Example:\n>cd SEMOR\n>bin/semor -r");
+            return 0;
         }
         for(i=strlen(root_path)-1; i >= 0; i--){
             if(root_path[i] != '/'){
@@ -283,12 +284,14 @@ int main(int argc, char *argv[]){
 
     //Initialize shared variables
     str2str_pid = rtkrcv1_pid = rtkrcv2_pid = -1;
-    isset_first_pos = 0;
     imu_ready = 0;
+
     if(!debug){
+        //Set arguments for execv function
         char *const str2str_args[] = {str2str_path, "-in", str2str_in, "-out", str2str_out1_port, "-out", str2str_out2_port, NULL};
-        char *const rtkrcv1_args[] = {rtkrcv_path, "-s", "-o", rtkconf, "-d", "/dev/null", NULL}; //rtk4pid.conf
-        char *const rtkrcv2_args[] = {rtkrcv_path, "-s", "-o", pppconf, "-d", "/dev/null", NULL}; //ppp4pid_navcast.conf
+        char *const rtkrcv1_args[] = {rtkrcv_path, "-s", "-o", rtkconf, "-d", "/dev/null", NULL}; //"/dev/null" needed to remove rtkrcv terminal issues (it takes control
+        //of standard input and output)
+        char *const rtkrcv2_args[] = {rtkrcv_path, "-s", "-o", pppconf, "-d", "/dev/null", NULL};
 
         //Execute str2str
         if ((str2str_pid = fork()) == -1){
@@ -298,7 +301,7 @@ int main(int argc, char *argv[]){
         else if (str2str_pid == 0) {
             close_io();
             execv(str2str_args[0], str2str_args);
-            printf("\nSEMOR: execv error (str2str)");
+            printf("\nSEMOR: execv error (str2str)"); //if this line is executed, something is wrong
             close_semor(1);
         }
 
@@ -327,7 +330,7 @@ int main(int argc, char *argv[]){
             close_semor(1);
         }
 
-        //Create pids.txt file to manually kill previous executed processes if needed
+        //Create pids.txt file to manually kill previous executed processes if needed (in case someone forgots to soft-terminate SEMOR entering 'q')
         FILE *pids = fopen(pids_file, "w");
         fprintf(pids, "str2str: %d\nrtkrcv(1): %d\nrtkrcv(2): %d", str2str_pid, rtkrcv1_pid, rtkrcv2_pid);
         fclose(pids);
@@ -342,13 +345,14 @@ int main(int argc, char *argv[]){
         mkdir(semor_conf_path, 0777);
     }
 
-    /*
-    Semor starts here
-    */
    
 
     printf("\n");
     printf("SEMOR: press q to stop\n");
+
+    /*
+    SEMOR core starts here
+    */
     start_processing();
 
 

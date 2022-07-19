@@ -16,64 +16,91 @@
 #include <sys/stat.h>
 
 
-#define DEBUG_FILE 1 //If semor takes data from file
-
+//File containing the output positions from SEMOR
 #define FILE_PATH "output.txt"
 
+//Input file of RTK and PPP for debugging (in future developments their definition can be added to the conf file)
 #define GPS_FILE "test/gps.pos"
 #define GALILEO_FILE "test/galileo.pos"
 
+//Constants to improve readability
 #define GPS 0
 #define GALILEO 1
 #define IMU 2
 
-#define THRESHOLD 20000000
+//GPS=0, GALILEO=1, IMU=2 --- array in which new (input) data from GNSS and IMU is written and ready to be processed
+gnss_sol_t sol[3];
 
-//Solutions
-
-//char rtk_port_rtkrcv[6];
-//char ppp_port_rtkrcv[6];
-
-gnss_sol_t sol[3]; /* GPS=0, GALILEO=1, IMU=2 */
+//Structure in which the "best" solution, so the output of SEMOR for each epoch, is stored (taken by SiConsulting algorithm using get_data() function)
 gnss_sol_t best;
 
-gnss_sol_t initial_pos; //initial position for imu initialization
+//Initial position for imu initialization
+gnss_sol_t initial_pos;
 
+//Log files for RTK, PPP and IMU
 FILE* sol_file[3];
 
+//output file (with path: FILE_PATH)
 FILE *file;
 
+//Declaration of pids variables of str2str and rtkrcv (2 instances)
 pid_t str2str_pid, rtkrcv1_pid, rtkrcv2_pid;
 
-int isset_first_pos;
-int imu_ready;
+int imu_ready; //0: the imu biases are not already calculated so SEMOR can't process any solutions right now, 1: SEMOR is processing solutions 
 gnss_sol_t first_pos;
 
+//Used in debug mode
+//Set to 1 when one or both RTK and PPP solutions are ahead of the seconds variable (defined later in the code) -> no new data is read from the file/files until
+//the seconds variable arrive to the same epochs as both RTK and PPP. This is needed for the synchronization of the solutions and so for the processing
 int wait_read[2];
-int last_week[2];
-int seconds;
-int n_imu; //how many times the imu solution has been used consecutively
 
+//Used in debug mode
+//SEMOR set "sol[<index>].time.week = 0" to indicate that a solution will be ignored in the output production. We set sol[<index>].time.week = 0, for example, when
+//we want to ignore a solution A that is waiting for one other solution B since B is behind A. When B reaches again A, A.time.week will be reset to last_week[<index of A>]
+//and it won't be ignored for the next rounds
+int last_week[2];
+
+//Used in debug mode to simulate the time passing (since input files of RTK and PPP may contain discontinuities among epochs)
+int seconds;
+
+//how many times the imu solution has been used consecutively
+//when n_imu reaches imu_drift, SEMOR terminates and needs to be re-initialized
+int n_imu;
+
+//used to execute init_imu(sol[IMU]) only one/the first time
 int first_time = 1;
 
+//path to de log directory
 char log_dir[PATH_MAX/2];
 
-char deb_string[300];
-
-
-gnss_sol_t ecef2geo(gnss_sol_t gnss){
-
-    // Output vector - Lat, Long, Height
+//Conversion from ecef to geodetic coordinates
+gnss_sol_t ecef2geo_(gnss_sol_t gnss){
+  //gives std deviations in m with format E N U
 	// Variables
 	double x, y, z;
-	x = gnss.a; y = gnss.b; z = gnss.c;
+  double lat_P1, lng_P1, h_P1;
+  double slat, slng, sh;
+
+
+  double x_P1 = gnss.a;
+  double y_P1 = gnss.b;
+  double z_P1 = gnss.c;
+  double sx = gnss.sda;
+  double sy = gnss.sdb;
+  double sz = gnss.sdc;
+
+  // printf("%lf | ", gnss.sda);
+  // printf("%lf | ", gnss.sdb);
+  // printf("%lf ||", gnss.sdc);
+/* Point n°1 */
+  x = x_P1; y = y_P1; z = z_P1;
 	// Semi Major Axis and Eccentricity
-	const double a = 6378137; const double e = 0.08181979;
+	const double a = 6378137; const double e = 0.08181919;
 	// Compute Longitude
 	double lambda = atan2(y, x);
-	// Physical radius of the point 
+	// Physical radius of the point
 	double r = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
-	// Radius in the x-y plane 
+	// Radius in the x-y plane
 	double p = sqrt(pow(x, 2) + pow(y, 2));
 	// GEOcentric latitude (Initial Approx)
 	double phi_o = atan2(p, z); double phi_i = phi_o;
@@ -93,40 +120,26 @@ gnss_sol_t ecef2geo(gnss_sol_t gnss){
 	// Recalculate Height
 	h = (p / cos(phi_i)) - Rn;
 	// Populate output vector
-	gnss.a = phi_i;
-	gnss.b = lambda;
-	gnss.c = h;
-	return gnss;
-    
-    /*
-    // WGS84 constants
-    double a = 6378137.0;
-    double f = 1.0 / 298.257223563;
-    // derived constants
-    double b = a - f*a;
-    double e = sqrt(pow(a,2)-pow(b,2))/a;
-    double clambda = atan2(gnss.b,gnss.a);
-    double p = sqrt(pow(gnss.a,2)+pow(gnss.b,2));
-    double h_old = 0.0;
-    // first guess with h=0 meters
-    double theta = atan2(gnss.c,p*(1.0-pow(e,2.0)));
-    double cs = cos(theta);
-    double sn = sin(theta);
-    double N = pow(a,2)/sqrt(pow(a*cs,2)+pow(b*sn,2.0));
-    double h = p/cs - N;
-    while (fabs(h-h_old) > 1.0e-6){
-        h_old = h;
-        theta = atan2(gnss.c,p*(1.0-pow(e,2.0)*N/(N+h)));
-        cs = cos(theta);
-        sn = sin(theta);
-        N = pow(a,2.0)/sqrt(pow(a*cs,2.0)+pow(b*sn,2.0));
-        h = p/cs - N;
-    }
-    //llh = {'lon':clambda, 'lat':theta, 'height': h}
-    gnss.a = clambda;
-    gnss.b = theta;
-    gnss.c = h;
-    return gnss;*/
+	lat_P1 = radianToDegree(phi_i);
+	lng_P1 = radianToDegree(lambda);
+	h_P1 = h;
+  gnss.a = lat_P1;
+  gnss.b = lng_P1;
+  gnss.c = h_P1;
+
+  double phi = phi_i;
+  double lam = lambda;
+
+  gnss.sda = fabs(-sin(lam)*sx + cos(lam)*sy);
+  gnss.sdb = fabs(-cos(lam)*sin(phi)*sx - sin(lam)*sin(phi)*sy +cos(phi)*sz);
+  gnss.sdc = fabs(cos(lam)*cos(phi)*sx + sin(lam)*cos(phi)*sy + sin(phi)*sz);
+  //
+  // printf("%lf | ", gnss.sda);
+  // printf("%lf | ", gnss.sdb);
+  // printf("%lf \n", gnss.sdc);
+
+  return gnss;
+
 }
 
 
@@ -174,6 +187,8 @@ LocData_t get_data(){ //SiConsulting
 //Close SEMOR and all processes started by it (rtkrcv and str2str)
 void close_semor(int status){
     printf("\nSEMOR terminated.\n");
+
+    //Kill RTKLIB executables
     if(str2str_pid != -1 && kill(str2str_pid, SIGKILL) == -1){
         perror("SEMOR: Error killing str2str process");
     }
@@ -183,20 +198,25 @@ void close_semor(int status){
     if(rtkrcv2_pid != -1 && kill(rtkrcv2_pid, SIGKILL) == -1){
         perror("SEMOR: Error killing rtkrcv(2) process");
     }
+
+    //lock used in loose-gnss-imu/Loosely.cpp to read and write the imu_data matrix
     pthread_mutex_destroy(&lock);
+    
+    //close raw imu data log file
     close_ctocpp();
+
+    //close log files
     if(logs){
         fclose(sol_file[GPS]);
         fclose(sol_file[GALILEO]);
         fclose(sol_file[IMU]);
     }
+
+    //close output file
     fclose(file);
     exit(status);
 }
 
-/*LocData_t get_data(){
-
-}*/
 
 gnss_sol_t str2gnss(char str[MAXSTR]){
     gnss_sol_t gnss;
@@ -228,10 +248,6 @@ gnss_sol_t str2gnss(char str[MAXSTR]){
 }
 
 void gnss2str(char* str, gnss_sol_t gnss){
-    /*sprintf(str, "%d %d %lf %lf %lf %d %d %lf %lf %lf %lf %lf %lf %f %f %lf %lf %lf", gnss.time.week,
-    gnss.time.sec, gnss.a, gnss.b, gnss.c, gnss.Q, gnss.ns, 
-    gnss.sda, gnss.sdb, gnss.sdc, gnss.sdab, gnss.sdbc, gnss.sdca,
-    gnss.age, gnss.ratio, gnss.va, gnss.vb, gnss.vc);*/
     sprintf(str, "sec: %d, pos: %lf %lf %lf, std: %lf %lf %lf", gnss.time.sec, gnss.a, gnss.b, gnss.c, gnss.sda, gnss.sdb, gnss.sdc);
 }
 
@@ -256,6 +272,7 @@ void gnsscopy(gnss_sol_t *dest, gnss_sol_t src){
     (*dest).vc = src.vc;
 }
 
+//print solution to output file
 void output(gnss_sol_t sol){
     char sol1[MAXSTR];
     gnss2str(sol1, sol);
@@ -263,6 +280,7 @@ void output(gnss_sol_t sol){
     fflush(file);
 }
 
+//print solution to log file
 void print_solution(int sol_index){
     char sol1[MAXSTR];
     gnss2str(sol1, sol[sol_index]);
@@ -270,6 +288,7 @@ void print_solution(int sol_index){
     fflush(sol_file[sol_index]);
 }
 
+//check if 2 positions are similar (if the range of one position plus or minus its standard deviation overlaps with the range of the other)
 int similar_pos(gnss_sol_t p1, gnss_sol_t p2){
 
     //Check a
@@ -311,6 +330,7 @@ int similar_pos(gnss_sol_t p1, gnss_sol_t p2){
     return 1;
 }
 
+//Compute the mean of 2 positions (used when only 2 positions, out of the 3, are similar)
 void gnss_avg_2(gnss_sol_t sol1, gnss_sol_t sol2){
     //Position
     best.a = (sol1.a + sol2.a)/2;
@@ -335,6 +355,7 @@ void gnss_avg_2(gnss_sol_t sol1, gnss_sol_t sol2){
     best.time.sec = sol1.time.sec;
 }
 
+//Compute the mean of 3 positions (when all the positions are similar)
 void gnss_avg_3(gnss_sol_t sol1, gnss_sol_t sol2, gnss_sol_t sol3){
     //Position
     best.a = (sol1.a + sol2.a + sol3.a)/3;
@@ -391,14 +412,14 @@ int  get_best_sol_3(){ //if 3 solutions available - 0: no best found, 1: best fo
     return 0;
 }
 
+//core processing of semor here (comparison of the available solutions for each epoch and the calcultation of the output)
 void process_solutions(int chk_sols){
-    int i;
-    int is_best_found = 1;
-    char g[200];
+    int i; //counter variable
+    int is_best_found; //it tells if a best is found: the only time SEMOR can't find the best solution is when we have 2 or 3 solutions available but none of them are similar
 
     if(debug){
         for(i = 0; i < 2; i++){ //for each gnss solution check if its epoch is higher than the "seconds" variable, if so wait next iterations 
-        //before displaying the solution till epochs are equal
+        //before displaying the solution until epochs are equal
             if(sol[i].time.sec > seconds){
                 if(!wait_read[i])
                     last_week[i] = sol[i].time.week;
@@ -416,19 +437,20 @@ void process_solutions(int chk_sols){
             }
         }
     }
+
+    //while imu is not ready, keep calling imu_sol and return (in this condition imu_sol won't calculate the next imu position but will initialize the imu)
     if(!imu_ready){
-        //gnsscopy(&sol[IMU], sol[GPS]);
         sol[IMU].time.sec++;
         imu_sol(&sol[IMU]); //this takes 1 second
-        gnss2str(g, sol[IMU]);
-        //printf("%s\n", g);
-        //fflush(stdout);
         return;
     }
 
+    //sol[IMU].time.week == 0, no solution will be available (actually I think it's impossibile for this condition to be true ever)
     if(sol[IMU].time.week != 0) 
         chk_sols |= 4;
-    switch(chk_sols){ //Get best solution between GPS, GALILEO, IMU
+
+    //Get best solution between GPS, GALILEO, IMU
+    switch(chk_sols){
         case 0: //no solutions, return
             return;
         case 1: //only GPS
@@ -460,14 +482,17 @@ void process_solutions(int chk_sols){
     }
 
     
-
-    if(logs && (imu_ready >= 1)){
+    //print logs
+    if(logs){
         print_solution(GPS);
         print_solution(GALILEO);
         print_solution(IMU);
     }
 
-    if(is_best_found == 0 || chk_sols == 4){ //if is_best_found == 0 (IMU solution is used)
+    //if is_best_found == 0 (IMU solution is used)
+    if(!is_best_found){
+        gnsscopy(&best, sol[IMU]);
+
         if(n_imu == imu_drift){
             //REINITIALIZE SEMOR
             printf("Re-initialize SEMOR\n");
@@ -477,43 +502,29 @@ void process_solutions(int chk_sols){
             n_imu++;
     }
     else{
+        //reset n_imu since at least two solutions are similar and the output solution is not drifting
         n_imu = 0;
     }
 
-    //Output
-    if(!is_best_found){
-        gnsscopy(&best, sol[IMU]);
-        //printf("no best found\n");
-    }
+    //Here we have the output solutions stored in best
 
-    //Here we have the solution
-
-    //Convert the position from ecef to geodetic
-    //ecef2geo(&best);
+    //Print the solution in the output file
     output(best);
-    LocData_t res;
-    res = get_data();
-    //printf("x: %lf(%lf), y: %lf(%lf), z: %lf(%lf)\n", best.a, res.dLat, best.b, res.dLon, best.c, res.dHeigth);
-    fflush(stdout);
-    //printf("%s\n", res.ui8TS);
-
-    if(!is_best_found && chk_sols < 4){ //no best solution and no imu solution
-        //TODO
-    }
 
     //Flag solutions as already used
     sol[GPS].time.week = 0;
     sol[GALILEO].time.week = 0;
 
     //Post comparison and output
-    //So let's generate the next imu position
-
-    //gnsscopy(&sol[IMU], best); DECOMMENTAREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+    //So let's generate the next imu position propagating "best" with the raw acceleration and rotation data until the next epoch
+    gnsscopy(&sol[IMU], best);
     sol[IMU].time.week = 0;
     sol[IMU].time.sec += 1; //Get imu position of the next second
     imu_sol(&sol[IMU]); //this runs at least until raw IMU timestamp < next second
 
 }
+
+//Check if the user entered 'q' to terminate SEMOR
 void check_termination(){
     char cmd;
     cmd = getchar();
@@ -522,6 +533,7 @@ void check_termination(){
     }
 }
 
+//Establish connection to the a rtkrcv sockets (executed twice in SEMOR, one for RTK and one for PPP)
 void setup_tcp_socket(int* fd, char port[6]){
     int status;
     struct addrinfo hints, *res;
@@ -552,7 +564,7 @@ void setup_tcp_socket(int* fd, char port[6]){
 
     do{
         connect(*fd, res->ai_addr, res->ai_addrlen);
-        if(errno != EISCONN){ //(errno == ECONNREFUSED || errno == EAGAIN || errno == EINPROGRESS || errno == EALREADY)
+        if(errno != EISCONN){
             continue; //Wait for rtkrcv to start and to send data
         }
         break; //Stop while
@@ -561,6 +573,7 @@ void setup_tcp_socket(int* fd, char port[6]){
     free(res);
 }
 
+//read a gnss solution from a socket
 int read_gnss(int fd, int* offset, char* buf, int buf_length){
     int nbytes = 0;
 
@@ -588,6 +601,11 @@ int read_gnss(int fd, int* offset, char* buf, int buf_length){
     return nbytes;
 }
 
+//This function contains the main loop in which: 
+//1)SEMOR reads GNSS data from the two instances of rtkrcv
+//2)it reads IMU data
+//3)it processes the best solution (that can be one of the 3 solutions in input or the mean of at least 2 of them)
+//4)it calculates the imu position for the next epoch
 void handle_connection(){
     struct addrinfo hints, *res;
     int status;
@@ -618,6 +636,7 @@ void handle_connection(){
         setup_tcp_socket(&socketfd[GALILEO], ppp_port_rtkrcv);
     }
 
+    //Initialize the structures needed by poll()
     fds[0].fd = socketfd[GPS];
     fds[1].fd = socketfd[GALILEO];
     fds[2].fd = STDIN_FILENO;
@@ -627,8 +646,7 @@ void handle_connection(){
     fds1[GALILEO][0].fd = socketfd[GALILEO];
     fds1[GPS][0].events = fds1[GALILEO][0].events = POLLIN;
 
-    //fcntl(0, F_SETFL, fcntl(0, F_GETFL) | O_NONBLOCK);
-
+    //Initialize to 0 some variables
     wait_read[0] = wait_read[1] = 0;
     n_imu = 0;
 
@@ -637,7 +655,6 @@ void handle_connection(){
 
     while(1){
         check_sols = 0;
-        //usleep(300000);
         ret = poll(fds, 3, timeout_msecs); //wait for events on the 3 fds
         if (ret == -1){
             perror("SEMOR: poll");
@@ -648,49 +665,38 @@ void handle_connection(){
         }
         for(i = 0; i < 2; i++){ //Get GPS and GALILEO solutions
             offset[i] = 0;
-                //strcpy(buf[i], "");
-                //memset(buf[i], 0, sizeof buf);
-                //strncpy(dest_string,"",strlen(dest_string));
 
             usleep(150000); //gives time to the solutions to be read (if one of them is late)
-            //ret = poll(fds1[i], 1, 150000); //wait for events on the 3 fds
-            /* if(i == 0)
-                usleep(9000); */
-            //ret = poll(fds, 3, timeout_msecs);
 
-            if(1/*fds[i].revents & POLLIN*/){
-                if(debug && wait_read[i]){ //Don't read solution i (0:GPS, 1:GALILEO) if the solution in the previous iterations has a higher epoch than "seconds" variable
-                    continue;
+            if(debug && wait_read[i]){ //Don't read solution i (0:GPS, 1:GALILEO) if the solution in the previous iterations has a higher epoch than "seconds" variable
+                continue;
+            }
+            nbytes = read_gnss(socketfd[i], &offset[i], buf[i], sizeof buf[i]);
+
+            if(strstr(buf[i], "lat") || strstr(buf[i], "latitude") || strstr(buf[i], "ecef") || strlen(buf[i]) < 5){ //Check if the input string contains gnss data or if it is an empty line or header
+                offset[i] = 0;
+
+                //Clean up the buffer
+                for(int j=0; j<MAXSTR;j++){
+                    buf[i][j] = 0;
                 }
-                nbytes = read_gnss(socketfd[i], &offset[i], buf[i], sizeof buf[i]);
+                continue;
+            }
 
-                if(strstr(buf[i], "lat") || strstr(buf[i], "latitude") || strstr(buf[i], "ecef") || strlen(buf[i]) < 5){ //Check if the input string contains gnss data or if it is an empty line or header
-                    offset[i] = 0;
-                    //strcpy(buf[i], "");
-                    //memset(buf[tmp], 0, sizeof buf);
-                    for(int j=0; j<MAXSTR;j++){
-                        buf[i][j] = 0;
-                    }
-                    continue;
-                }
+            if(offset[i] != 0 && (buf[i][offset[i]-1] == '\r' || buf[i][offset[i]-1] == '\n')){ //If incoming data is a full gnss measurement string
+                buf[i][offset[i]-1] = '\0'; //Replace new line with end of string
+                check_sols |= i+1;
+                first_input |= i+1;
+                sol[i] = str2gnss(buf[i]);//Parse string to gnss_sol_t structure
 
-                if(offset[i] != 0 && (buf[i][offset[i]-1] == '\r' || buf[i][offset[i]-1] == '\n')){ //If incoming data is a full gnss measurement string
-                    buf[i][offset[i]-1] = '\0'; //Replace new line with end of string
-                    //offset[i] = 0; //Reset offset for next reads
-                    check_sols |= i+1;
-                    //printf("%s\n", buf[i]);
-                    first_input |= i+1;
-                    sol[i] = str2gnss(buf[i]);//Parse string to gnss_sol_t structure
-                    //strcpy(buf[i], "");
-                    //memset(buf[tmp], 0, sizeof buf);
-                    for(int j=0; j<MAXSTR;j++){
-                        buf[i][j] = 0;
-                    }
+                //Clean up the buffer
+                for(int j=0; j<MAXSTR;j++){
+                    buf[i][j] = 0;
                 }
             }
         }
 
-        if(first_input < 1){ //ci deve essere almeno la soluzione RTK all'inizio
+        if(first_input < 1){ //at least one GNSS solution available
             continue;
         }
 
@@ -711,7 +717,6 @@ void handle_connection(){
                 sol[IMU].time.sec = seconds;
             }
             init_imu(sol[IMU]);
-            //initial_pos.time.sec++;
             first_time = 0;
         }
 
@@ -724,9 +729,8 @@ void handle_connection(){
 
 }
 
+//Initialize structure for the initial position (initial input of the IMU), open log and output files and call handle_connection()
 void start_processing(void){
-    int ret;
-    int i;
     char path[3][PATH_MAX];
 
     //Initialize structure of initial_pos
@@ -742,10 +746,7 @@ void start_processing(void){
     sol[IMU].vb = 0;
     sol[IMU].vc = 0;
 
-    //DEBUG
-    //initial_pos.time.week = 2032;
-    //initial_pos.time.sec = 273375;
-
+    //Create log folder and files for this very execution of SEMOR
     time_t rawtime;
     struct tm info;
     time( &rawtime );
@@ -758,17 +759,9 @@ void start_processing(void){
     log_dir[PATH_MAX/2];
 
     if(logs){
-        if(relative){
-            sprintf(log_dir, "logs/logs_%s", str_time);
-            if (stat(log_dir, &st) == -1) {
-                mkdir(log_dir, 0777);
-            }
-        }
-        else{
-            sprintf(log_dir, "%slogs/logs_%s", root_path, str_time);
-            if (stat(log_dir, &st) == -1) {
-                mkdir(log_dir, 0777);
-            }
+        sprintf(log_dir, "%slogs/logs_%s", root_path, str_time);
+        if (stat(log_dir, &st) == -1) {
+            mkdir(log_dir, 0777);
         }
         sprintf(path[0], "%s/gps_%s.log", log_dir, str_time);
         sprintf(path[1], "%s/galileo_%s.log", log_dir, str_time);
@@ -781,13 +774,14 @@ void start_processing(void){
         sol_file[IMU] = fopen(path[2], "w");
     }
 
-    char pp[PATH_MAX/2];
+    char imu_raw_log[PATH_MAX/2];
 
-    sprintf(pp, "%s/imu_raw.log", log_dir, str_time);
+    sprintf(imu_raw_log, "%s/imu_raw.log", log_dir, str_time);
 
-    FILE* ff = fopen(pp, "w");
-    fclose(ff);
+    FILE* fimu_raw = fopen(imu_raw_log, "w");
+    fclose(fimu_raw);
 
+    //open output file
     file = fopen(FILE_PATH, "w");
     if(file == NULL){
         perror("SEMOR fopen()");
