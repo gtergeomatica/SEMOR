@@ -1,17 +1,13 @@
 ### Setup SEMOR
 
-For now the software requires the absolute path to the SEMOR folder.
-
-In order to change this path you must:
-- note the absolute path of the SEMOR folder
-- open the semor.c file in the SEMOR folder and modify every "/home/semor/SEMOR/" to the path of your SEMOR folder
-- do the same for the client.c inside the src folder
-
 ### Compile
-You need to compile 3 files: semor.c, rtkrcv.c and str2str.c as shown below.
 Commands to be executed inside the SEMOR folder:
 ```
+  mkdir build
+  cd build
+  cmake ../
   make
+  cd ..
   cd RTKLIB-b34e/app/consapp/rtkrcv/gcc/
   make
   cd ../../../../..
@@ -24,6 +20,10 @@ Commands to be executed inside the SEMOR folder:
   cd bin
   ./semor
 ```
+
+### Configuration
+After the first execution of SEMOR a default semor.conf is created.
+Update it based on your needs.
   
 In order to stop SEMOR you need to send 'q' to the terminal.
   

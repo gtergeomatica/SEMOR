@@ -12,6 +12,8 @@
 //Set default configuration
 int logs=1;
 int debug=0; //1: read from files (test/galileo.pos, test/gps.pos, test/imu.csv)
+
+//START Used in IMU standard deviation calculation
 double init_bg_unc = 2.42406840554768e-05;
 double init_ba_unc = 0.048901633857000000;
 double psd_gyro  = 3.38802348178723e-09;
@@ -19,6 +21,8 @@ double psd_acce      =     2.60420170553977e-06;     // acce noise PSD (m^2/s^3)
 double psd_bg        =     2.61160339323310e-14;     // gyro bias random walk PSD (rad^2/s^3)
 double psd_ba        =     1.66067346797506e-09;
 int sample_rate = 104; //in hz, sample rate of the IMU
+//END Used in IMU standard deviation calculation
+
 int imu_init_epochs =  20;//in seconds, in this interval SEMOR collects IMU data to initialize it by calculating precision errors and biases
 int imu_drift = 60; //in seconds, if during this interval only IMU solutions are available, SEMOR will terminate and it needs to be re-initialized (probably
  //something is wrong in RTK or PPP solutions)
@@ -45,7 +49,7 @@ char pppconf[PATH_MAX];
 char root_path[PATH_MAX-200];
 
 //-in argument of str2str
-char str2str_in[30] = "tcpcli://192.168.2.91:8081";
+char str2str_in[60] = "serial://ttyACM0#ubx $tcpcli://192.168.2.91:8081";
 
 //-out arguments of str2str
 char str2str_out1_port[16] = "tcpsvr://:8085";
@@ -64,7 +68,7 @@ void read_conf_line(char line[MAX_LINE]){
     int i;
     char *token;
     char *eptr;
-    char delim[8] = "$= \t";
+    char delim[8] = "$= \t"; // '$' indica l'inizio di un commento nel file di configurazione
     token = strtok(line, delim);
 
     if(strstr(token, "rtkrcv-port-rtk")){
