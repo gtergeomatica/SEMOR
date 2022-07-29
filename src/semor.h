@@ -19,8 +19,6 @@
 
 extern char root_path[PATH_MAX-200];
 
-extern int relative; //-r argument (to read files using relative paths)
-
 extern int logs;
 extern int debug;
 extern double init_bg_unc;
@@ -109,7 +107,6 @@ typedef struct gnss_solution{ /* a = x | n ,    b = y | e ,     c = z | u*/
 } gnss_sol_t;
 
 //IMU
-extern int isset_first_pos;
 extern gnss_sol_t first_pos;
 extern int imu_ready;
 extern gnss_sol_t best;

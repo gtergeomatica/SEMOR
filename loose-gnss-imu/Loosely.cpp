@@ -17,34 +17,43 @@
 using namespace std;
 using namespace Eigen;
 
+//raw imu data log file
 ofstream out;
-
-int first = 1;
 
 // PI
 const double PI = 3.1415926535898;
 
+//imu timestamp of the last read sample
 double epochAfterRead;
 
-double lastGroupReadEpoch;
-
-
+//structure used to make the imu mechanization and so the part that calculates a position given a start position and a sample of imu data
 IMUmechECEF MechECEF;
 
+//Used in debug mode, raw imu data input file
 ifstream fimu;
 
+//structure used to initialize imu biases and errors
 InitializeIMU iniIMU;
+
+//timestamp that tells when the initialization of the imu ends
 double IMU_INI_TIME_END;
 
+//structure that contains last read gnss data
 ReaderGNSS OBSgnss;
+
+//structure that contains last read imu data
 ReaderIMU OBSimu;
 
 
-int last_imu_epoch = 0;
-
 pthread_mutex_t lock;
 pthread_t imu_thread_id;
+
+//buffer containing raw imu data
+//the main thread reads data from this
+//the loop_imu_thread() writes data in this
 char imu_data[IMUBUF_CAPACITY][IMU_LENGTH];
+
+//cursors for reading and writing in imu_data
 int imu_count_write = 0;
 int imu_count_read = 0;
 
@@ -53,10 +62,12 @@ Loosely::Loosely(){
 
 }
 
+//close raw imu data log file
 void Loosely::close_out_file(){
 	out.close();
 }
 
+//Used for debugging the collection of imu data
 void print_time(){
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
@@ -65,6 +76,7 @@ void print_time(){
 	printf("%lf\n", sec);
 }
 
+//read one sample at a time
 void Loosely::read_imu(){
 	string line;
 	if(debug){
@@ -79,14 +91,12 @@ void Loosely::read_imu(){
 		char buf[IMU_LENGTH];
 		do{
 			pthread_mutex_lock(&lock);
-			strcpy(buf, imu_data[imu_count_read]); //forse qui non serve il lock
+			strcpy(buf, imu_data[imu_count_read]);
 			pthread_mutex_unlock(&lock);
 			if(strlen(buf) != 0){
-				//printf("%s\n", buf);
 				line = string(buf);
 				OBSimu.clearObs();
 				OBSimu.obsEpoch(line);
-				//printf("%lf | %lf\n", OBSimu._IMUdata.imuTime, _epochIMU);
 			}
 		}while(OBSimu._IMUdata.imuTime <= _epochIMU);
 
@@ -101,18 +111,12 @@ void Loosely::read_imu(){
 
 }
 
-void closeF(){
-	out.close();
-}
-
 
 // A routine to facilitate IMU mechanization in ECEF
 void Loosely::SolutionIMU(ReaderIMU IMU, IMUmechECEF& MechECEF) {
 	// Compute time interval
 	_dTimu = IMU._IMUdata.imuTime - _epochIMU; //Difference between current epoch and previous
-	//printf("%lf\n", _dTimu);
 	// IMU Mechanization
-  //cout << "2-->" << iniIMU._RPY.at(0)*180.0/PI << " | " << iniIMU._RPY.at(0)*180.0/PI << " | " << iniIMU._RPY.at(0)*180.0/PI << endl;
 	MechECEF.MechanizerECEF(_dTimu, IMU._IMUdata.Acc, IMU._IMUdata.Gyr, _LLH_o); //Update ECEF position adding to it accelerometer and gyroscope data (previous data is accumulated)
 	// Update solution
 	_epochIMU = IMU._IMUdata.imuTime; //Update epocIMU with current epoch
@@ -120,7 +124,6 @@ void Loosely::SolutionIMU(ReaderIMU IMU, IMUmechECEF& MechECEF) {
 	IMUsol.velXYZ = MechECEF._vel;		//Update IMU solution
 	IMUsol.attXYZ = MechECEF._att;		//Update IMU solution
 	_Heading_imu = normalise(IMUsol.attXYZ.at(2), 0, 2 * PI);
-	//printf("%lf\n", IMU._IMUdata.imuTime);
 }
 
 VectorXd double2eigVector(double a, double b, double c){
@@ -131,13 +134,7 @@ VectorXd double2eigVector(double a, double b, double c){
 	return v;
 }
 
-int deb_enabled = 1;
-void deb(char message[300]){
-    if(deb_enabled){
-        printf("%s\n", message);
-    }
-}
-
+//dedicated thread that reads raw imu data and place it in imu_data in a thread-safe manner
 void* loop_imu_thread(void* arg){
 	char buf[IMU_LENGTH];
 	string line;
@@ -153,15 +150,12 @@ void* loop_imu_thread(void* arg){
 
 	while(1){
 		get_imu_data(buf);
-		//while(get_imu_data(buf) != 0){} //old version (for get_imu_data_old(buf))
 
-		//modificare matrice "imu_data"
+		//modifica matrice "imu_data" in modo thread-safe
 		pthread_mutex_lock(&lock);
 		strcpy(imu_data[imu_count_write++], buf);
 		pthread_mutex_unlock(&lock);
 		imu_count_write = imu_count_write % IMUBUF_CAPACITY;
-		//printf("imu_count_write: %d\n", imu_count_write);
-		//pthread_mutex_unlock(&lock);
 	}
 }
 
@@ -204,58 +198,41 @@ gnss_sol_t ecef2geo(gnss_sol_t gnss){
 	// Populate output vector
 	/* gnss.a = radianToDegree(phi_i);
 	gnss.b = radianToDegree(lambda); */
+
+	//The library takes radian values, not degrees so radianToDegree is not what we want to use here
 	gnss.a = phi_i;
 	gnss.b = lambda;
 	gnss.c = h;
 	return gnss;
 }
 
+//input: previous epoch best solution (this position will be propagated using imu data until next epoch), output: gnss+imu solution of the next(this) epoch
 void Loosely::get_imu_sol(gnss_sol_t* int_sol){
-	 /* struct timeval tv;
-            gettimeofday(&tv, NULL);
-            int week = ((tv.tv_sec+LEAP_SECONDS-GPS_EPOCH))/(7*24*3600);
-            double sec = (double)(((tv.tv_sec+LEAP_SECONDS-GPS_EPOCH))%(7*24*3600))+(tv.tv_usec / 1000000.0);
-	printf("to process: %d | now: %lf\n", (*int_sol).time.sec, sec); */
 	//Check if imu is initializing
 	if(imu_ready == 0){
 		int n = 0;
-		while(/* n < 104 */ OBSimu._IMUdata.imuTime < (*int_sol).time.sec){ //read whole imu date of a particular gnss epoch
+		while(OBSimu._IMUdata.imuTime < (*int_sol).time.sec){ //read whole imu date of a particular gnss epoch
 			if(imu_ready == 0 && iniIMU.stepInitializeIMU(OBSimu, IMU_INI_TIME_END, _LLH_o) == 1){ //it calculates _ACCbias and _GYRbias, _RPY
-				//_dT = 1.0;
 				// Initialize IMU Mechanization
-        //cout << "1-->" << iniIMU._RPY.at(0)*180.0/PI << " | " << iniIMU._RPY.at(0)*180.0/PI << " | " << iniIMU._RPY.at(0)*180.0/PI << endl;
 				MechECEF.InitializeMechECEF(_ECEF_imu, _LLH_o, GNSSsol.velXYZ, iniIMU._RPY, iniIMU._ACCbias, iniIMU._GYRbias); //it initializes MechECEF with _ACCbias, _GYRbias and _RPY
 
 				imu_ready = 1; //Tells client.c that it can read imu data
 				printf("SEMOR: End initialization\n");
 			}
 			_epochIMU = OBSimu._IMUdata.imuTime;
-			lastGroupReadEpoch = OBSimu._IMUdata.imuTime;
 			read_imu();
 			if(imu_ready == 1){
 				imu_ready = 2;
 				(*int_sol).time.week = OBSimu._IMUdata.week;
-				/*avg_acc_x = tot_acc_x/((double)nsamples);
-				avg_acc_y = tot_acc_y/((double)nsamples);
-				avg_acc_z = tot_acc_z/((double)nsamples);
-
-				printf("%lf - %lf - %lf\n", avg_acc_x, avg_acc_y, avg_acc_z);*/
 			}
 			epochAfterRead = OBSimu._IMUdata.imuTime;
 			n++;
 		}
-		//cout << n << endl;
-		//cout.flush();
 		return;
 	}
-	//IMU is ready:
+	//Here IMU is ready:
 
-	//Initialize IMU mechanization with initial position, initial velocity and biases
-	/*_ECEF_o = eigVector2std(double2eigVector((*int_sol).a, (*int_sol).b, (*int_sol).c));
-	_LLH_o = eigVector2std(ecef2geo(double2eigVector((*int_sol).a, (*int_sol).b, (*int_sol).c)));
-	_ECEF_imu = _ECEF_o;
-	GNSSsol.velXYZ = eigVector2std(double2eigVector((*int_sol).va, (*int_sol).vb, (*int_sol).vc));*/
-
+	//initialize MechECEF fields with the input position
 	MechECEF._pos.at(0) = (*int_sol).a;
 	MechECEF._pos.at(1) = (*int_sol).b;
 	MechECEF._pos.at(2) = (*int_sol).c;
@@ -264,23 +241,13 @@ void Loosely::get_imu_sol(gnss_sol_t* int_sol){
 	MechECEF._vel.at(1) = (*int_sol).vb;
 	MechECEF._vel.at(2) = (*int_sol).vc;
 
-	/*if(1){
-		MechECEF.InitializeMechECEF(_ECEF_imu, _LLH_o, GNSSsol.velXYZ, iniIMU._RPY, iniIMU._ACCbias, iniIMU._GYRbias);
-		first = 0;
-	}*/
-	//here we have previous gnss position
-
-
-
-	//print_time();
-
 	double group_time = 0.1;
 	double next_time = epochAfterRead + group_time;
-	//epochAfterRead = _epochIMU;
 
 	double avg_ax = 0, avg_ay = 0, avg_az = 0;
 	double avg_gx = 0, avg_gy = 0, avg_gz = 0;
 	int n = 0, nlocal = 0;
+	//here we already have the first sample of IMU data that we need (in the last iteration of the next while we read a sample that we use in the next epoch)
 	do {
 		gnss_sol_t llh = ecef2geo(*int_sol);
 		_LLH_o = eigVector2std(double2eigVector(llh.a, llh.b, llh.c));
@@ -298,107 +265,13 @@ void Loosely::get_imu_sol(gnss_sol_t* int_sol){
 		epochAfterRead = OBSimu._IMUdata.imuTime;
 		n++;
 
-		/*avg_ax +=OBSimu._IMUdata.Acc.at(0);
-		avg_ay +=OBSimu._IMUdata.Acc.at(1);
-		avg_az +=OBSimu._IMUdata.Acc.at(2);
-
-		avg_gx +=OBSimu._IMUdata.Gyr.at(0) ;
-		avg_gy +=OBSimu._IMUdata.Gyr.at(1) ;
-		avg_gz +=OBSimu._IMUdata.Gyr.at(2) ;
-
-		n++;
-		nlocal++;
-		//printf("a\n");
-
-		if(epochAfterRead >= next_time || epochAfterRead > (*int_sol).time.sec){
-
-			avg_ax /= nlocal;
-			avg_ay /= nlocal;
-			avg_az /= nlocal;
-
-			avg_gx /= nlocal;
-			avg_gy /= nlocal;
-			avg_gz /= nlocal;
-
-			OBSimu._IMUdata.Acc.at(0) = avg_ax;
-			OBSimu._IMUdata.Acc.at(1) = avg_ay;
-			OBSimu._IMUdata.Acc.at(2) = avg_az;
-
-			OBSimu._IMUdata.Gyr.at(0) = avg_gx;
-			OBSimu._IMUdata.Gyr.at(1) = avg_gy;
-			OBSimu._IMUdata.Gyr.at(2) = avg_gz;
-
-			gnss_sol_t llh = ecef2geo(*int_sol);
-			_LLH_o = eigVector2std(double2eigVector(llh.a, llh.b, llh.c));
-
-      //cout << avg_gz << endl ;
-
-			SolutionIMU(OBSimu, MechECEF);
-			(*int_sol).a = IMUsol.posXYZ.at(0);
-			(*int_sol).b = IMUsol.posXYZ.at(1);
-			(*int_sol).c = IMUsol.posXYZ.at(2);
-			(*int_sol).va = IMUsol.velXYZ.at(0);
-			(*int_sol).vb = IMUsol.velXYZ.at(1);
-			(*int_sol).vc = IMUsol.velXYZ.at(2);
-
-			lastGroupReadEpoch = OBSimu._IMUdata.imuTime;
-
-      //cout << "gx : " << avg_gx << " gy = " << avg_gy << " gz = " << avg_gz << endl;
-      //cout << "ax : " << avg_ax << " ay = " << avg_ay << " az = " << avg_az << endl;
-
-			//Reset variables for next iterations
-			next_time += group_time;
-			avg_ax = avg_ay = avg_az = 0;
-			avg_gx = avg_gy = avg_gz = 0;
-			nlocal = 0;
-		}
-		//Update Time
-		_epochIMU = OBSimu._IMUdata.imuTime;
-		read_imu();
-		epochAfterRead = OBSimu._IMUdata.imuTime;*/
 	} while (epochAfterRead <= (*int_sol).time.sec);
 
-		 /*cout << n << endl;
-		cout.flush();
-cout << "---------------------------------------------------" << endl;
-		cout.flush();*/
-
-
-	/* if(logs){
-		cout << n << endl;
-		cout.flush();
-		out << "---------------------------------------------------" << endl;
-		out.flush();
-	} */
-
-	//printf("next_time: %lf\n", next_time);
-
-	/* (*int_sol).a = IMUsol.posXYZ.at(0);
-	(*int_sol).b = IMUsol.posXYZ.at(1);
-	(*int_sol).c = IMUsol.posXYZ.at(2);
-
-	//printf("%lf, %lf, %lf\n", (*int_sol).a, (*int_sol).b, (*int_sol).c);
-
-  //cout << "-->" << IMUsol.velXYZ.at(0) << endl;
-
-	(*int_sol).va = IMUsol.velXYZ.at(0);
-	(*int_sol).vb = IMUsol.velXYZ.at(1);
-	(*int_sol).vc = IMUsol.velXYZ.at(2); */
-
-	//cout << n << endl;
-	//cout.flush();
-
-	//
-
-	//here we have next gnss+imu position
-
-	//We have position and STD of this epoch
-
-
-	//Mark imu solution as usable for the comparison (in order to get the best solution for SEMOR)
-	(*int_sol).time.week = OBSimu._IMUdata.week;
+	//mark the imu solution as available (before (*int_sol).time.week was equal to 0)
+	(*int_sol).time.week = OBSimu._IMUdata.week; 
 }
 
+//this is called only once
 void Loosely::init_imu(gnss_sol_t fst_pos){
 	FileIO FIO;
 
@@ -413,14 +286,8 @@ void Loosely::init_imu(gnss_sol_t fst_pos){
     sprintf(str_time, "%d_%02d_%02d_%02d_%02d", (info.tm_year+1900), (info.tm_mon+1), info.tm_mday, info.tm_hour, info.tm_min);
 
 	stringstream ss, ss1;
-	if(relative){
-		ss << "test/imu.csv";
-		ss1 << log_dir << "/imu_raw" << ".log";
-	}
-	else{
-		ss << root_path << "test/imu.csv";
-		ss1 << log_dir << "/imu_raw" << ".log";
-	}
+	ss << root_path << "test/imu.csv";
+	ss1 << log_dir << "/imu_raw" << ".log";
 	FIO.fileSafeIn(ss.str(), fimu);
 
 	if(logs){
@@ -433,14 +300,10 @@ void Loosely::init_imu(gnss_sol_t fst_pos){
 
 	if(err != 0){
 		printf("ERRORE THREAD\n");
+		//TODO: close_semor(1)
 	}
 
 	read_imu(); //fill OBSimu
-	/* get_imu_data(buf);
-	line = string(buf);
-	OBSimu.clearObs();
-	OBSimu.obsEpoch(line);
- */
 
 	_epochIMU = OBSimu._IMUdata.imuTime;
 	_epochGNSS = fst_pos.time.sec;

@@ -67,7 +67,18 @@
         "cinttypes": "cpp",
         "typeindex": "cpp",
         "typeinfo": "cpp",
-        "variant": "cpp"
+        "variant": "cpp",
+        "stat.h": "c",
+        "xiosbase": "c",
+        "cholesky": "c",
+        "core": "c",
+        "eigenvalues": "c",
+        "geometry": "c",
+        "householder": "c",
+        "jacobi": "c",
+        "lu": "c",
+        "qr": "c",
+        "svd": "c"
     },
     "C_Cpp.errorSquiggles": "Enabled"
 }
