@@ -73,6 +73,11 @@ int first_time = 1;
 //path to de log directory
 char log_dir[PATH_MAX/2];
 
+const double PI = 3.1415926535898;
+double radianToDegree(double r) {
+  return r * (180 / PI);
+}
+
 //Conversion from ecef to geodetic coordinates
 gnss_sol_t ecef2geo_(gnss_sol_t gnss){
   //gives std deviations in m with format E N U
@@ -152,7 +157,7 @@ LocData_t get_data(){ //SiConsulting
     time_t rawtime, ti;
     struct tm info;
 
-    geo_best = ecef2geo(best);
+    geo_best = ecef2geo_(best);
 
     data.dLat = geo_best.a;
     data.dLon = geo_best.b;
