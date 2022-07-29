@@ -39,7 +39,7 @@ char pppconf[PATH_MAX];
 
 char root_path[PATH_MAX-200];
 
-char str2str_in[30] = "tcpcli://192.168.2.91:8081";
+char str2str_in[60] = "serial://ttyACM0#ubx $tcpcli://192.168.2.91:8081";
 char str2str_out1_port[16] = "tcpsvr://:8085";
 char str2str_out2_port[16] = "tcpsvr://:8086";
 
