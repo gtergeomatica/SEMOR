@@ -74,8 +74,7 @@ static const char *help[]={
 " -x level  debug trace level (0:off) [0]"
 };
 /* show message --------------------------------------------------------------*/
-#ifndef WIN32
-extern int showmsg(const char* format, ...)
+extern int showmsg(const char *format, ...)
 {
     va_list arg;
     va_start(arg,format); vfprintf(stderr,format,arg); va_end(arg);
@@ -84,7 +83,6 @@ extern int showmsg(const char* format, ...)
 }
 extern void settspan(gtime_t ts, gtime_t te) {}
 extern void settime(gtime_t time) {}
-#endif // !WIN32
 
 /* print help ----------------------------------------------------------------*/
 static void printhelp(void)

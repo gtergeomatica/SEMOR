@@ -38,8 +38,6 @@
 *-----------------------------------------------------------------------------*/
 #include <stdlib.h>
 #include <signal.h>
-
-#ifndef WIN32
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/types.h>
@@ -51,8 +49,6 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <errno.h>
-#endif
-
 #include "rtklib.h"
 #include "vt.h"
 
@@ -76,35 +72,16 @@
 #define SQRT(x)     ((x)<=0.0||(x)!=(x)?0.0:sqrt(x))
 
 /* type defintions -----------------------------------------------------------*/
-#ifdef WIN32
-typedef int socklen_t;
-typedef struct {                       /* console type */
-    int state;                         /* state (0:stop,1:run) */
-    vt_t *vt;                          /* virtual terminal */
-    thread_t thread;                  /* console thread */
-} con_t;
-#else
+
 typedef struct {                       /* console type */
     int state;                         /* state (0:stop,1:run) */
     vt_t *vt;                          /* virtual terminal */
     pthread_t thread;                  /* console thread */
 } con_t;
- #endif
-/* function prototypes -------------------------------------------------------*/
-#ifdef WIN32
-extern FILE* popen(const char* cmd, const char* mod)
-{
-    return _popen(cmd, mod);
-}
 
-extern int pclose(FILE* str)
-{
-    return _pclose(str);
-}
-#else
-extern FILE* popen(const char*, const char*);
-extern int pclose(FILE*);
-#endif
+/* function prototypes -------------------------------------------------------*/
+extern FILE *popen(const char *, const char *);
+extern int pclose(FILE *);
 
 /* global variables ----------------------------------------------------------*/
 static rtksvr_t svr;                    /* rtk server struct */
@@ -117,9 +94,9 @@ static int timetype     =0;             /* time format (0:gpst,1:utc,2:jst,3:tow
 static int soltype      =0;             /* sol format (0:dms,1:deg,2:xyz,3:enu,4:pyl) */
 static int solflag      =2;             /* sol flag (1:std+2:age/ratio/ns) */
 static int strtype[]={                  /* stream types */
-    STR_SERIAL,STR_NONE,STR_NONE,STR_NONE,STR_NONE,STR_NONE,STR_NONE,STR_NONE,STR_NONE,STR_NONE
+    STR_SERIAL,STR_NONE,STR_NONE,STR_NONE,STR_NONE,STR_NONE,STR_NONE,STR_NONE
 };
-static char strpath[10][MAXSTR]={"","","","","","","","","","" }; /* stream paths */
+static char strpath[8][MAXSTR]={"","","","","","","",""}; /* stream paths */
 static int strfmt[]={                   /* stream formats */
     STRFMT_UBX,STRFMT_RTCM3,STRFMT_SP3,SOLF_LLH,SOLF_NMEA
 };
@@ -148,8 +125,8 @@ static solopt_t solopt[2]={{0}};        /* solution options */
 static filopt_t filopt  ={""};          /* file options */
 
 /* help text -----------------------------------------------------------------*/
-static const char* usage[] = {
-    "usage: rtkrcv [-s][-im value][-im_path path][-p port][-d dev][-o file][-w pwd][-r level][-t level][-sta sta]",
+static const char *usage[]={
+    "usage: rtkrcv [-s][-p port][-d dev][-o file][-w pwd][-r level][-t level][-sta sta]",
     "options",
     "  -s         start RTK server on program startup",
     "  -p port    port number for telnet console",
@@ -159,9 +136,7 @@ static const char* usage[] = {
     "  -w pwd     login password for remote console (\"\": no password)",
     "  -r level   output solution status file (0:off,1:states,2:residuals)",
     "  -t level   debug trace level (0:off,1-5:on)",
-    "  -sta sta   station name for receiver dcb",
-    "  -im value  model for ionosphere mitigation (GTER addon): 1 model1; 2: model2; 3: model3; 4: model4;",
-    "  -im_path path    path of the folder where to look for S4 map files"
+    "  -sta sta   station name for receiver dcb"
 };
 static const char *helptxt[]={
     "start                 : start rtk server",
@@ -297,12 +272,7 @@ static void *sendkeepalive(void *arg)
 /* open monitor port ---------------------------------------------------------*/
 static int openmoni(int port)
 {
-    #ifdef WIN32
-    thread_t thread;
-    #else
     pthread_t thread;
-    #endif
-    
     char path[64];
     
     trace(3,"openmomi: port=%d\n",port);
@@ -336,7 +306,7 @@ static int confwrite(vt_t *vt, const char *file)
     
     strcpy(buff,file);
     if ((p=strstr(buff,"::"))) *p='\0'; /* omit options in path */
-    if (vt == NULL || (!vt->state||!(fp=fopen(buff,"r")))) return 1; /* no existing file */
+    if (!vt->state||!(fp=fopen(buff,"r"))) return 1; /* no existing file */
     fclose(fp);
     vt_printf(vt,"overwrite %-16s ? (y/n): ",buff);
     if (!vt_gets(vt,buff,sizeof(buff))||vt->brk) return 0;
@@ -430,7 +400,7 @@ static int startsvr(vt_t *vt)
     char *ropts[]={"","",""};
     char *paths[]={
         strpath[0],strpath[1],strpath[2],strpath[3],strpath[4],strpath[5],
-        strpath[6],strpath[7],strpath[8],strpath[9]
+        strpath[6],strpath[7]
     };
     char errmsg[2048]="";
     int i,ret,stropt[8]={0};
@@ -451,7 +421,7 @@ static int startsvr(vt_t *vt)
     }
     /* confirm overwrite */
     for (i=3;i<8;i++) {
-        //if (strtype[i]==STR_FILE&&!confwrite(vt,strpath[i])) return 0;
+        /*if (strtype[i]==STR_FILE&&!confwrite(vt,strpath[i])) return 0;*/
     }
     if (prcopt.refpos==4) { /* rtcm */
         for (i=0;i<3;i++) prcopt.rb[i]=0.0;
@@ -498,8 +468,6 @@ static int startsvr(vt_t *vt)
     }
     solopt[0].posf=strfmt[3];
     solopt[1].posf=strfmt[4];
-    solopt[1].timef = solopt[0].timef;
-
     
     /* start rtk server */
     if (!rtksvrstart(&svr,svrcycle,buffsize,strtype,paths,strfmt,navmsgsel,
@@ -1660,8 +1628,8 @@ static void accept_sock(int ssock, con_t **con)
 int main(int argc, char **argv)
 {
     con_t *con[MAXCON]={0};
-    int i,start=0,port=0,outstat=0,trace=0,sock=0,im_model=1;
-    char* dev = "", file[MAXSTR] = "", im_path[MAXSTRPATH] = "";
+    int i,port=0,outstat=0,trace=0,sock=0;
+    char *dev="",file[MAXSTR]="";
     
     for (i=1;i<argc;i++) {
         if      (!strcmp(argv[i],"-s")) start=1;
@@ -1691,9 +1659,6 @@ int main(int argc, char **argv)
         fprintf(stderr,"no options file: %s. defaults used\n",file);
     }
     getsysopts(&prcopt,solopt,&filopt);
-    sprintf(strpath[8], "%s", prcopt.gter_ftp_server);
-    sprintf(strpath[9], "%s", prcopt.gter_ftp_server);
-    strtype[8] = strtype[9] = STR_FTP;
     
     /* read navigation data */
     if (!readnav(NAVIFILE,&svr.nav)) {
@@ -1718,7 +1683,6 @@ int main(int argc, char **argv)
     }
     else {
         /* open device for local console */
-        /* #ifndef WIN32
         if (!(con[0]=con_open(0,dev))) {
             fprintf(stderr,"console open error dev=%s\n",dev);
             if (moniport>0) closemoni();
@@ -1726,21 +1690,13 @@ int main(int argc, char **argv)
             traceclose();
             return -1;
         }
-        #endif */
     }
     signal(SIGINT, sigshut); /* keyboard interrupt */
     signal(SIGTERM,sigshut); /* external shutdown signal */
-
-#ifndef WIN32
     signal(SIGUSR2,sigshut);
     signal(SIGHUP ,SIG_IGN);
     signal(SIGPIPE,SIG_IGN);
-#endif
 
-    /* start rtk server checkthis!*/
-    if (start) {
-        startsvr(NULL);
-    }
     while (!intflg) {
         /* accept remote console connection */
         accept_sock(sock,con);

@@ -558,6 +558,39 @@ static void send_nmea(rtksvr_t *svr, uint32_t *tickreset)
 			   sol_nmea.rr[2]);
 	}
 }
+
+static double** CopyMatrixContent(double** input, int nRows, int nCols)
+{
+    int i,j;
+    double** output = NULL;
+    
+    if (input != NULL)
+    {
+        output = (double**)malloc(nRows * sizeof(double*));
+        for (i = 0; i < nRows; i++)
+        {
+            output[i] = (double*)malloc(nCols * sizeof(double));
+            for (j = 0; j < nCols; j++)
+                output[i][j] = input[i][j];
+        }
+    }
+
+    return output;
+}
+
+static void FreeGterIonoMap(double** gterIonoMap, int nRows)
+{
+    int i;
+    if (gterIonoMap != NULL)
+    {
+        for (i = 0; i < nRows; i++)
+            free(gterIonoMap[i]);
+
+        free(gterIonoMap); 
+        gterIonoMap = NULL;
+    }
+}
+
 /* rtk server thread ---------------------------------------------------------*/
 #ifdef WIN32
 static DWORD WINAPI rtksvrthread(void *arg)
@@ -574,6 +607,13 @@ static void *rtksvrthread(void *arg)
     uint8_t *p,*q;
     char msg[128];
     int i,j,n,fobs[3]={0},cycle,cputime;
+    int epIdx;
+    double minDt;
+    time_t minRif = 0; /* Minuto di riferimento all'epoca precedente */
+    char gridFilePath[MAXSTRPATH];
+    char mapFilePath[MAXSTRPATH];
+    char mapFileName[32];
+    int tmpNRows = 0;
     
     tracet(3,"rtksvrthread:\n");
     
@@ -581,7 +621,24 @@ static void *rtksvrthread(void *arg)
     svr->tick=tickget();
     ticknmea=tick1hz=svr->tick-1000;
     tickreset=svr->tick-MIN_INT_RESET;
+    int nRowGrid;
+    sprintf(((ftp_t*)(svr->stream + 8)->port)->file, "%s/grid.csv", ((ftp_t*)(svr->stream + 8)->port)->file);
+    sprintf(((ftp_t*)(svr->stream + 9)->port)->file, "%s/yyyymmdd_hhmmss.csv", ((ftp_t*)(svr->stream + 9)->port)->file);
     
+    mdpStruct* mdpStr = InitializeMdpStructure(svr->rtk.opt.gter_mdp_nepochs, svr->rtk.opt.gter_mdp_thsnr, svr->rtk.opt.gter_mdp_thmdp);
+    printf("Downloading grid file...");
+    DownloadFromFtp(svr->stream+8, svr->rtk.opt.gter_im_path, "grid.csv", 1);
+    sleepms(10000);
+    sprintf(gridFilePath, "%s%cgrid.csvt", svr->rtk.opt.gter_im_path,FILEPATHSEP);
+    svr->rtk.gterIonoGrid = ReadCsv(gridFilePath, MAX_GRID_COL, &svr->rtk.gterNGridRow, &svr->rtk.gterNGridStep, 1);
+    if (svr->rtk.gterIonoGrid == NULL)
+        printf(" Not completed, a new attempt will be made in a few seconds...\r\n");
+    else
+        printf(" Done\r\n");
+    svr->rtk.gterCurrentIonoMap = NULL;
+    svr->rtk.gterNextIonoMap = NULL;
+
+    /*StartDebugFile(svr->rtk.opt.gter_mdp_criterion, svr->rtk.opt.gter_mdp_thsnr, svr->rtk.opt.gter_mdp_thmdp);*/
     for (cycle=0;svr->state;cycle++) {
         tick=tickget();
         for (i=0;i<3;i++) {
@@ -629,8 +686,102 @@ static void *rtksvrthread(void *arg)
             for (j=0;j<svr->obs[0][i].n&&obs.n<MAXOBS*2;j++) {
                 obs.data[obs.n++]=svr->obs[0][i].data[j];
             }
-            for (j=0;j<svr->obs[1][0].n&&obs.n<MAXOBS*2;j++) {
-                obs.data[obs.n++]=svr->obs[1][0].data[j];
+            
+            epIdx = 0;
+
+            /* dcurone added comment 21.04.20: modified to keep the reference observables epoch closest to rover data epoch  */
+            minDt=svr->rtk.opt.maxtdiff+1;
+            for (j=0;j<fobs[1];j++) {
+                if (fabs(svr->obs[0][i].data[0].time.time-svr->obs[1][j].data[0].time.time) < minDt) {
+                    minDt = fabs(svr->obs[0][i].data[0].time.time - svr->obs[1][j].data[0].time.time);
+                    epIdx = j;
+                }
+            }
+            for (j=0;j<svr->obs[1][epIdx].n&&obs.n<MAXOBS*2;j++) {
+                obs.data[obs.n++]=svr->obs[1][epIdx].data[j];
+            }
+            double ep[6];
+            gtime_t nextMinute = obs.data[0].time;
+            nextMinute.time += 60;
+            nextMinute.sec = 0;
+
+            time2epoch(nextMinute, ep);
+            if (svr->rtk.opt.gter_im_model > 0 && obs.data[0].time.time > 0 && ((int)(obs.data[0].time.time/60) - (int)(minRif/60) > 0) && obs.data[0].time.time % 60 > 30)
+            {
+                svr->rtk.gterNextIonoMapIniTime = epoch2time(ep);
+                if (svr->rtk.gterIonoGrid == NULL)
+                {
+                    /* if IonoGrid file not yet read, try to read it (in case it was downloaded in the last minute)*/
+                    sprintf(gridFilePath, "%s%cgrid.csvt", svr->rtk.opt.gter_im_path, FILEPATHSEP);
+                    svr->rtk.gterIonoGrid = ReadCsv(gridFilePath, MAX_GRID_COL, &svr->rtk.gterNGridRow, &svr->rtk.gterNGridStep, 1);
+                    if (svr->rtk.gterIonoGrid == NULL)
+                    {
+                        /* if not yet available, try to download again, it will be read in the next minute */
+                        DownloadFromFtp(svr->stream + 8, svr->rtk.opt.gter_im_path, "grid.csv", 1);
+                        printf("warning: Grid file not available! Impossible to apply iono-scintillation mitigation models!\n");
+                    }
+                }
+
+                sprintf(mapFileName, "%04d%02d%02d_%02d%02d00.csv", (int)ep[0], (int)ep[1], (int)ep[2], (int)ep[3], (int)ep[4]);
+                double tmp;
+                char subbuff[MAXSTRPATH];
+
+                memcpy(subbuff, &(((ftp_t*)(svr->stream + 9)->port)->file)[0], strlen(((ftp_t*)(svr->stream + 9)->port)->file) - 20);
+                subbuff[strlen(((ftp_t*)(svr->stream + 9)->port)->file) - 20] = '\0';
+
+                sprintf(((ftp_t*)(svr->stream + 9)->port)->file, "%s/%s", subbuff, mapFileName);
+                if (obs.data[0].time.time % 60 > 30)
+                    DownloadFromFtp(svr->stream + 9, svr->rtk.opt.gter_im_path, mapFileName, 0);
+
+                sprintf(mapFilePath, "%s%c%st", svr->rtk.opt.gter_im_path, FILEPATHSEP, mapFileName);
+                
+                FILE* f = fopen(mapFilePath, "r");
+                if (f != NULL) {
+                    fclose(f);
+                    svr->rtk.gterNextIonoMap = ReadCsv(mapFilePath, MAX_PARK_PARAMS, &tmpNRows, &tmp, 1);
+                    if (svr->rtk.gterNextIonoMap != NULL)
+                    {
+                        printf("%s downloaded\r\n", mapFilePath);
+                        minRif = obs.data[0].time.time;
+
+                        if (tmpNRows != svr->rtk.gterNGridRow)
+                        {
+                            svr->rtk.gterNextIonoMap[0][0] = -1.0;
+                            printf("warning: inconsistency between iono-mitigation map and grid formats! Impossible to apply iono-scintillation mitigation models!\n");
+                        }
+
+                        if (svr->rtk.opt.gter_n_valid_koulouri_risks == 0)
+                        {
+                            svr->rtk.gterNextIonoMap[0][0] = -1.0;
+                            printf("warning: inconsistency between koulouri breaks and risks! Impossible to apply iono-scintillation mitigation models!\n");
+                        }
+                    }
+                }
+                else
+                {
+                    FreeGterIonoMap(svr->rtk.gterNextIonoMap, svr->rtk.gterNGridRow);
+                    svr->rtk.gterNextIonoMap = NULL;
+                    printf("warning: Next minute map file unavailable!\n");
+                }
+
+                //else if ((int)(obs.data[0].time.time / 60) - (int)(minRif / 60) > 1) {
+                //    svr->rtk.gterIonoMap = NULL;
+                //}
+            }
+
+            if (svr->rtk.opt.gter_im_model > 0 && obs.data[0].time.time > 0)
+            {
+                if (svr->rtk.gterNextIonoMapIniTime.time > svr->rtk.gterCurrentIonoMapIniTime.time &&
+                    (int)(obs.data[0].time.time / 60) - (int)(svr->rtk.gterNextIonoMapIniTime.time / 60) == 0)
+                {
+                    svr->rtk.gterCurrentIonoMapIniTime = svr->rtk.gterNextIonoMapIniTime;
+                    FreeGterIonoMap(svr->rtk.gterCurrentIonoMap, svr->rtk.gterNGridRow);
+                    svr->rtk.gterCurrentIonoMap = CopyMatrixContent(svr->rtk.gterNextIonoMap, svr->rtk.gterNGridRow, MAX_PARK_PARAMS);
+                    if (svr->rtk.gterCurrentIonoMap != NULL)
+                        printf("Current Iono Map updated!\n");
+                    else
+                        printf("Current Iono Map unavailable! Impossible to apply iono-scintillation mitigation models\n");
+                }
             }
             /* carrier phase bias correction */
             if (!strstr(svr->rtk.opt.pppopt,"-DIS_FCB")) {
@@ -638,7 +789,7 @@ static void *rtksvrthread(void *arg)
             }
             /* rtk positioning */
             rtksvrlock(svr);
-            rtkpos(&svr->rtk,obs.data,obs.n,&svr->nav);
+            rtkpos(&svr->rtk,obs.data,obs.n,&svr->nav, mdpStr);
             rtksvrunlock(svr);
             
             if (svr->rtk.sol.stat!=SOLQ_NONE) {
@@ -654,6 +805,7 @@ static void *rtksvrthread(void *arg)
             if ((int)(tickget()-tick)>=svr->cycle) {
                 svr->prcout+=fobs[0]-i-1;
             }
+        sleepms(1000); /* to process RTCM files 1 second for each epoch*/
         }
         /* send null solution if no solution (1hz) */
         if (svr->rtk.sol.stat==SOLQ_NONE&&(int)(tick-tick1hz)>=1000) {
@@ -913,8 +1065,8 @@ extern int rtksvrstart(rtksvr_t *svr, int cycle, int buffsize, int *strs,
     svr->moni=moni;
     
     /* open input streams */
-    for (i=0;i<8;i++) {
-        rw=i<3?STR_MODE_R:STR_MODE_W;
+    for (i=0;i<10;i++) {
+        rw=i<3||i>7?STR_MODE_R:STR_MODE_W;
         if (strs[i]!=STR_FILE) rw|=STR_MODE_W;
         if (!stropen(svr->stream+i,strs[i],rw,paths[i])) {
             sprintf(errmsg,"str%d open error path=%s",i+1,paths[i]);
@@ -926,6 +1078,13 @@ extern int rtksvrstart(rtksvr_t *svr, int cycle, int buffsize, int *strs,
             time=utc2gpst(timeget());
             svr->raw [i].time=strs[i]==STR_FILE?strgettime(svr->stream+i):time;
             svr->rtcm[i].time=strs[i]==STR_FILE?strgettime(svr->stream+i):time;
+
+
+            /* dcurone added fake time reference to use recorded files ROVE, REFE and BRDC in RTCM format; */
+           /* time.time = 1619160035;*/
+            /*time.time = 1633989600;
+            time.sec = 0.0; 
+            svr->raw[i].time = svr->rtcm[i].time = time;*/
         }
     }
     /* sync input streams */

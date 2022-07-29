@@ -290,7 +290,9 @@ static int rescode(int iter, const obsd_t *obs, int n, const double *rs,
         time=obs[i].time;
         sat=obs[i].sat;
         if (!(sys=satsys(sat,NULL))) continue;
-        
+
+        /*LB: add here MDP to exclude sat*/
+
         /* reject duplicated observation data */
         if (i<n-1&&i<MAXOBS-1&&sat==obs[i+1].sat) {
             trace(2,"duplicated obs data %s sat=%d\n",time_str(time,3),sat);
@@ -521,7 +523,7 @@ static int raim_fde(const obsd_t *obs, int n, const double *rs,
         sat=obs[i].sat;
         rms=rms_e;
         vsat[i]=0;
-        strcpy(msg,msg_e);
+        //strcpy(msg,msg_e);
     }
     if (stat) {
         time2str(obs[0].time,tstr,2); satno2id(sat,name);

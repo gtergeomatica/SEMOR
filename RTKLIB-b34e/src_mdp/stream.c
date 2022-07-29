@@ -238,20 +238,7 @@ typedef struct {            /* udp type */
     socket_t sock;          /* socket descriptor */
 } udp_t;
 
-typedef struct {            /* ftp download control type */
-    int state;              /* state (0:close,1:download,2:complete,3:error) */
-    int proto;              /* protocol (0:ftp,1:http) */
-    int error;              /* error code (0:no error,1-10:wget error, */
-                            /*            11:no temp dir,12:uncompact error) */
-    char addr[1024];        /* download address */
-    char file[1024];        /* download file path */
-    char user[256];         /* user for ftp */
-    char passwd[256];       /* password for ftp */
-    char local[1024];       /* local file path */
-    int topts[4];           /* time options {poff,tint,toff,tretry} (s) */
-    gtime_t tnext;          /* next retry time (gpst) */
-    thread_t thread;        /* download thread */
-} ftp_t;
+
 
 typedef struct {            /* memory buffer type */
     int state,wp,rp;        /* state,write/read pointer */
@@ -2237,7 +2224,7 @@ static void decodeftppath(const char *path, char *addr, char *file, char *user,
     if (passwd) *passwd='\0';
     if (topts) {
         topts[0]=0;    /* time offset in path (s) */
-        topts[1]=3600; /* download interval (s) */
+        topts[1]=0; /* download interval (s) */
         topts[2]=0;    /* download time offset (s) */
         topts[3]=0;    /* retry interval (s) (0: no retry) */
     }
@@ -2300,6 +2287,7 @@ static void *ftpthread(void *arg)
     ftp_t *ftp=(ftp_t *)arg;
     FILE *fp;
     gtime_t time;
+    char newfilename[1024];
     char remote[1024],local[1024],tmpfile[1024],errfile[1024],*p;
     char cmd[5120],env[1024]="",opt[1024],*proxyopt="",*proto;
     int ret;
@@ -2331,7 +2319,7 @@ static void *ftpthread(void *arg)
         fclose(fp);
         sprintf(ftp->local,"%.1023s",tmpfile);
         tracet(3,"ftpthread: file exists %s\n",ftp->local);
-        ftp->state=2;
+        ftp->state = 0;// 2;
         return 0;
     }
     /* proxy settings for wget (ref [2]) */
@@ -2345,8 +2333,10 @@ static void *ftpthread(void *arg)
         sprintf(opt,"--ftp-user=%.32s --ftp-password=%.32s --glob=off "
                 "--passive-ftp %.32s -t 1 -T %d -O \"%.768s\"",
                 ftp->user,ftp->passwd,proxyopt,FTP_TIMEOUT,local);
-        sprintf(cmd,"%s%s %s \"ftp://%s/%s\" 2> \"%.768s\"\n",env,FTP_CMD,opt,
-                ftp->addr,remote,errfile);
+        //sprintf(cmd,"%s%s %s \"ftp://%s/%s\" 2> \"%.768s\"\n",env,FTP_CMD,opt,
+        //        ftp->addr,remote,errfile);
+        sprintf(cmd,"%s%s %s \"ftp://%s/%s\"\n",env,FTP_CMD,opt,
+                ftp->addr,remote);
     }
     else { /* http */
         sprintf(opt,"%.32s -t 1 -T %d -O \"%.768s\"",proxyopt,FTP_TIMEOUT,
@@ -2381,8 +2371,9 @@ static void *ftpthread(void *arg)
         }
     }
     strcpy(ftp->local,local);
-    ftp->state=2; /* ftp completed */
-    
+    sprintf(newfilename, "%st", local);
+    rename(local, newfilename);
+    ftp->state = 0;// 2; /* ftp completed */
     tracet(3,"ftpthread: complete cmd=%s\n",cmd);
     return 0;
 }
@@ -2428,9 +2419,9 @@ static int readftp(ftp_t *ftp, uint8_t *buff, int n, char *msg)
     
     time=utc2gpst(timeget());
     
-    if (timediff(time,ftp->tnext)<0.0) { /* until download time? */
-        return 0;
-    }
+    //if (timediff(time,ftp->tnext)<0.0) { /* until download time? */
+    //    return 0;
+    //}
     if (ftp->state<=0) { /* ftp/http not executed? */
         ftp->state=1;
         sprintf(msg,"%s://%s",ftp->proto?"http":"ftp",ftp->addr);
@@ -3208,4 +3199,22 @@ extern void strsendcmd(stream_t *str, const char *cmd)
         }
         if (*q=='\0') break; else p=q+1;
     }
+}
+
+void DownloadFromFtp(stream_t* str, const char* dlDir, const char* fileName, int deleteOld)
+{
+    uint8_t* p[100001];
+    char origPath[MAXSTRPATH];
+    char localFilePath[MAXSTRPATH];
+    char tmp[MAXSTRPATH];
+
+    if (deleteOld)
+    {
+        sprintf(localFilePath, "%.768s%c%.254s", dlDir, FILEPATHSEP, fileName);
+        remove(localFilePath);
+        sprintf(localFilePath, "%st", localFilePath);
+        remove(localFilePath);
+    }
+    strread(str, p, 100000);
+    sleepms(1000);
 }

@@ -3,20 +3,20 @@
 BINDIR = /usr/local/bin
 SRC    = ../../../../src
 
-CTARGET= -DTRACE -DENAGLO -DENAQZS -DENACMP -DENAGAL -DENAIRN -DNFREQ=3 -DSVR_REUSEADDR
+CTARGET= -DENAGLO -DENAQZS -DENACMP -DENAGAL -DENAIRN -DNFREQ=5 -DSVR_REUSEADDR
 #CTARGET= -DENAGLO -DENAQZS -DENACMP -DENAGAL -DENAIRN -DNFREQ=3 -DIERS_MODEL -DSVR_REUSEADDR
 
-CFLAGS = -Wall -O3 -ansi -pedantic -Wno-unused-but-set-variable -I$(SRC) -I.. -DTRACE $(CTARGET) -g
+CFLAGS = -Wall -O3 -ansi -std=c99 -pedantic -Wno-unused-but-set-variable -I$(SRC) -I.. -DTRACE $(CTARGET) -g
 LDLIBS  = -lm -lrt -lpthread
 #LDLIBS  = ../../../lib/iers/gcc/iers.a -lm -lrt -lpthread
 
 all        : rtkrcv
 rtkrcv     : rtkrcv.o vt.o rtkcmn.o rtksvr.o rtkpos.o geoid.o solution.o lambda.o
 rtkrcv     : sbas.o stream.o rcvraw.o rtcm.o preceph.o options.o pntpos.o ppp.o ppp_ar.o
-rtkrcv     : novatel.o ublox.o crescent.o skytraq.o javad.o nvs.o binex.o
+rtkrcv     : novatel.o ublox.o ss2.o crescent.o skytraq.o javad.o nvs.o binex.o
 rtkrcv     : rt17.o ephemeris.o rinex.o ionex.o rtcm2.o rtcm3.o rtcm3e.o
-rtkrcv     : tides.o septentrio.o swiftnav.o
-
+rtkrcv     : tides.o septentrio.o ionomitigation.o mdpweight.o koulouri.o park.o
+rtkrcv     : swiftnav.o
 
 rtkrcv.o   : ../rtkrcv.c
 	$(CC) -c $(CFLAGS) ../rtkrcv.c
@@ -62,8 +62,8 @@ novatel.o  : $(SRC)/rcv/novatel.c
 	$(CC) -c $(CFLAGS) $(SRC)/rcv/novatel.c
 ublox.o    : $(SRC)/rcv/ublox.c
 	$(CC) -c $(CFLAGS) $(SRC)/rcv/ublox.c
-swiftnav.o : $(SRC)/rcv/swiftnav.c
-	$(CC) -c $(CFLAGS) $(SRC)/rcv/swiftnav.c
+ss2.o      : $(SRC)/rcv/ss2.c
+	$(CC) -c $(CFLAGS) $(SRC)/rcv/ss2.c
 crescent.o : $(SRC)/rcv/crescent.c
 	$(CC) -c $(CFLAGS) $(SRC)/rcv/crescent.c
 skytraq.o  : $(SRC)/rcv/skytraq.c
@@ -86,6 +86,16 @@ tides.o    : $(SRC)/tides.c
 	$(CC) -c $(CFLAGS) $(SRC)/tides.c
 septentrio.o: $(SRC)/rcv/septentrio.c
 	$(CC) -c $(CFLAGS) $(SRC)/rcv/septentrio.c
+ionomitigation.o: $(SRC)/ionomitigation.c
+	$(CC) -c $(CFLAGS) $(SRC)/ionomitigation.c
+mdpweight.o: $(SRC)/mdpweight.c
+	$(CC) -c $(CFLAGS) $(SRC)/mdpweight.c
+swiftnav.o: $(SRC)/rcv/swiftnav.c
+	$(CC) -c $(CFLAGS) $(SRC)/rcv/swiftnav.c
+koulouri.o: $(SRC)/koulouri.c
+	$(CC) -c $(CFLAGS) $(SRC)/koulouri.c
+park.o: $(SRC)/park.c
+	$(CC) -c $(CFLAGS) $(SRC)/park.c
 
 rtkrcv.o   : $(SRC)/rtklib.h ../vt.h
 rtkcmn.o   : $(SRC)/rtklib.h
@@ -107,7 +117,7 @@ ppp.o      : $(SRC)/rtklib.h
 ppp_ar.o   : $(SRC)/rtklib.h
 novatel.o  : $(SRC)/rtklib.h
 ublox.o    : $(SRC)/rtklib.h
-swiftnav.o : $(SRC)/rtklib.h
+ss2.o      : $(SRC)/rtklib.h
 crescent.o : $(SRC)/rtklib.h
 skytraq.o  : $(SRC)/rtklib.h
 javad.o    : $(SRC)/rtklib.h
@@ -119,6 +129,11 @@ ephemeris.o: $(SRC)/rtklib.h
 rinex.o    : $(SRC)/rtklib.h
 ionex.o    : $(SRC)/rtklib.h
 tides.o    : $(SRC)/rtklib.h
+ionomitigation.o    : $(SRC)/rtklib.h
+mdpweight.o : $(SRC)/rtklib.h
+swiftnav.o : $(SRC)/rtklib.h
+koulouri.o : $(SRC)/rtklib.h
+park.o : $(SRC)/rtklib.h
 
 install:
 	cp rtkrcv $(BINDIR)

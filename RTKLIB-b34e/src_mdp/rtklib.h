@@ -126,9 +126,9 @@ extern "C" {
 #define TSYS_CMP    5                   /* time system: BeiDou time */
 #define TSYS_IRN    6                   /* time system: IRNSS time */
 
-#ifndef NFREQ
+//#ifndef NFREQ
 #define NFREQ       3                   /* number of carrier frequencies */
-#endif
+//#endif
 #define NFREQGLO    2                   /* number of carrier frequencies of GLONASS */
 
 #ifndef NEXOBS
@@ -255,7 +255,7 @@ extern "C" {
 #define MAXCOMMENT  100                 /* max number of RINEX comments */
 #define MAXSTRPATH  1024                /* max length of stream path */
 #define MAXSTRMSG   1024                /* max length of stream message */
-#define MAXSTRRTK   8                   /* max number of stream in RTK server */
+#define MAXSTRRTK   10                  /* max number of stream in RTK server */
 #define MAXSBSMSG   32                  /* max number of SBAS msg in RTK server */
 #define MAXSOLMSG   8191                /* max length of solution message */
 #define MAXRAWLEN   16384               /* max length of receiver raw message */
@@ -517,6 +517,14 @@ extern "C" {
 #define P2_50       8.881784197001252E-16 /* 2^-50 */
 #define P2_55       2.775557561562891E-17 /* 2^-55 */
 
+/* constants used bt GTER ionosphere scintillation mitigation functions */
+#define MAX_KOULOURI_RISKS 10
+#define MAX_MDP_ROWS 61
+#define WEIGHT_INC_OBS 0.1
+#define MAX_GRID_COL 8
+#define MAX_KOULOURI_PARAMS 6
+#define MAX_PARK_PARAMS 12
+
 #ifdef WIN32
 #define thread_t    HANDLE
 #define lock_t      CRITICAL_SECTION
@@ -556,6 +564,15 @@ typedef struct {        /* observation data record */
     uint8_t Pstd[NFREQ+NEXOBS]; /* stdev of pseudorange (0.01*2^(n+5) meters) */
     uint8_t freq; /* GLONASS frequency channel (0-13) */
 
+    double snrFlag[NFREQ];
+    double mdpFlag[NFREQ];
+    double mdp[NFREQ];
+    double mdpWeight[NFREQ];
+    double s4[NFREQ];
+    double sigmaphi[NFREQ];
+    double p[NFREQ];
+    double T[NFREQ];
+    double ionoWeight[2*NFREQ]; /* weights on three carrier phases, then on three pseudoranges*/
 } obsd_t;
 
 typedef struct {        /* observation data */
@@ -876,6 +893,7 @@ typedef struct {        /* solution type */
     float prev_ratio1;   /* previous initial AR ratio factor for validation */
     float prev_ratio2;   /* previous final AR ratio factor for validation */
     float thres;        /* AR ratio threshold for valiation */
+    int gter_corr_status;
 } sol_t;
 
 typedef struct {        /* solution buffer type */
@@ -1040,6 +1058,38 @@ typedef struct {        /* processing options type */
     double odisp[2][6*11]; /* ocean tide loading parameters {rov,base} */
     int freqopt;        /* disable L2-AR */
     char pppopt[256];   /* ppp option */
+    char gter_ftp_server[MAXSTRPATH];
+    int gter_im_h;      /* ionosphere height */
+    int gter_im_model; /* ionosphere scintillation mitigation model: 1: Koulouri (default)*/
+    char gter_im_path[MAXSTRPATH];  /* path where S4 and SigmaPhi files are stored */
+    int gter_mdp_enable;  
+    double gter_mdp_coeff;
+    int gter_mdp_criterion;
+    double gter_mdp_thsnr;
+    double gter_mdp_thmdp;
+    int gter_mdp_nepochs;
+    double gter_koulouri_breaks[2*NFREQ][MAX_KOULOURI_RISKS];
+    double gter_koulouri_risks[2*NFREQ][MAX_KOULOURI_RISKS];
+    int gter_n_valid_koulouri_risks[2*NFREQ];
+    double gter_park_bn_dll_l1; /* Hz one-sided bandwidth DLL L1 */
+    double gter_park_bn_dll_l2; /* Hz one-sided bandwidth DLL L2 */
+    double gter_park_bn_pll_l1; /* Hz one-sided bandwidth PLL L1 */
+    double gter_park_bn_pll_l2; /* Hz one-sided bandwidth PLL L2 */
+    double gter_park_d;         /* spacing factor */
+    double gter_park_eta_l1;    /* s */
+    double gter_park_eta_l2;    /* GPS integration time */
+    double gter_park_k_pll_l1;  /* third order PLL */
+    double gter_park_k_pll_l2;  /* second order PLL */
+    double gter_park_fn_pll_l1; /* Hz loop natural frequency third order PLL */
+    double gter_park_fn_pll_l2; /* Hz loop natural frequency second order PLL */
+    double gter_park_sigma_osc; /* rad */
+    double gter_park_a;         /* 60/77=f2/f1 */
+    double gter_park_s4;        /* S4 threshold to apply Conker method */
+    double gter_park_w_l1;      /* m] chip length for L1 */
+    double gter_park_w_l2;      /* [m] chip length for P code */
+    double gter_park_lambda1;   /* light speed/F1 */
+    double gter_park_lambda2;   /* light speed/F2 */
+
 } prcopt_t;
 
 typedef struct {        /* solution options type */
@@ -1142,6 +1192,11 @@ typedef struct {        /* satellite status type */
     double  phw;        /* phase windup (cycle) */
     gtime_t pt[2][NFREQ]; /* previous carrier-phase time */
     double  ph[2][NFREQ]; /* previous carrier-phase observable (cycle) */
+    double mdp[2][NFREQ]; /*MDP value (here in order to be written un .out.sta file */
+    double s4[2][NFREQ];
+    double sigmaphi[2][NFREQ];
+    double p[2][NFREQ];
+    double T[2][NFREQ];
 } ssat_t;
 
 typedef struct {        /* ambiguity control type */
@@ -1152,6 +1207,19 @@ typedef struct {        /* ambiguity control type */
     int fixcnt;         /* fix count */
     char flags[MAXSAT]; /* fix flags */
 } ambc_t;
+
+/*
+typedef struct {
+    int isValid;        // boolean value: 0: invalid, 1: valid. Filled at the end of the reading of the file
+    int ncols;
+    int nrows;
+    int xllcorner;
+    int yllcorner;
+    float cellsize;
+    float NODATA_value;
+    float* map;  // to be initialized with ncols*nrows length
+} grid_map;*/
+/* mcata: modifica tipo da double a float (Exception: rtkrcv.exe has triggered a breakpoint) */
 
 typedef struct {        /* RTK control/result type */
     sol_t  sol;         /* RTK solution */
@@ -1170,6 +1238,16 @@ typedef struct {        /* RTK control/result type */
     char errbuf[MAXERRMSG]; /* error message buffer */
     prcopt_t opt;       /* processing options */
     int initial_mode;   /* initial positioning mode */
+
+    int gterNGridRow;   /* number of rows in gterIonoGrid*/
+    double gterNGridStep;   /* spacing between subsequent elements in gterIonoGrid [deg]*/
+    double** gterIonoGrid;      /* grid used for iono scintillation mitigation*/
+    double** gterCurrentIonoMap;       /* map with predicted values used for iono scintillation mitigation*/
+    double** gterNextIonoMap;       /* map with predicted values used for iono scintillation mitigation*/
+    gtime_t gterCurrentIonoMapIniTime; /* first second of validity of the NextIonoMap*/
+    gtime_t gterNextIonoMapIniTime; /* first second of validity of the NextIonoMap*/
+    /*grid_map s4[3];       /* array of maps with S4 parameters, one for each processed frequency */
+    /*grid_map sigmaPhi;  /* map with SigmaPhi parameters */
 } rtk_t;
 
 typedef struct {        /* receiver raw data control type */
@@ -1269,7 +1347,7 @@ typedef struct {        /* RTK server type */
     int nb [3];         /* bytes in input buffers {rov,base} */
     int nsb[2];         /* bytes in soulution buffers */
     int npb[3];         /* bytes in input peek buffers */
-    uint8_t *buff[3];   /* input buffers {rov,base,corr} */
+    uint8_t *buff[10];   /* input buffers {rov,base,corr} */
     uint8_t *sbuf[2];   /* output buffers {sol1,sol2} */
     uint8_t *pbuf[3];   /* peek buffers {rov,base,corr} */
     sol_t solbuf[MAXSOLBUF]; /* solution buffer */
@@ -1281,7 +1359,7 @@ typedef struct {        /* RTK server type */
     obs_t obs[3][MAXOBSBUF]; /* observation data {rov,base,corr} */
     nav_t nav;          /* navigation data */
     sbsmsg_t sbsmsg[MAXSBSMSG]; /* SBAS message buffer */
-    stream_t stream[8]; /* streams {rov,base,corr,sol1,sol2,logr,logb,logc} */
+    stream_t stream[10]; /* streams {rov,base,corr,sol1,sol2,logr,logb,logc} */
     stream_t *moni;     /* monitor stream */
     uint32_t tick;      /* start tick */
     thread_t thread;    /* server thread */
@@ -1316,6 +1394,21 @@ typedef struct gisd_tag { /* GIS data list type */
     void *data;         /* data body */
     struct gisd_tag *next; /* pointer to next */
 } gisd_t;
+
+typedef struct {            /* ftp download control type */
+    int state;              /* state (0:close,1:download,2:complete,3:error) */
+    int proto;              /* protocol (0:ftp,1:http) */
+    int error;              /* error code (0:no error,1-10:wget error, */
+                            /*            11:no temp dir,12:uncompact error) */
+    char addr[1024];        /* download address */
+    char file[1024];        /* download file path */
+    char user[256];         /* user for ftp */
+    char passwd[256];       /* password for ftp */
+    char local[1024];       /* local file path */
+    int topts[4];           /* time options {poff,tint,toff,tretry} (s) */
+    gtime_t tnext;          /* next retry time (gpst) */
+    thread_t thread;        /* download thread */
+} ftp_t;
 
 typedef struct {        /* GIS type */
     char name[MAXGISLAYER][256]; /* name */
@@ -1700,6 +1793,51 @@ EXPORT int sbsioncorr(gtime_t time, const nav_t *nav, const double *pos,
 EXPORT double sbstropcorr(gtime_t time, const double *pos, const double *azel,
                           double *var);
 
+
+/* GTER addon functions*/
+/*extern void ReadGridMapFile(char* filename, grid_map* map);*/
+
+
+
+
+
+typedef struct {
+    double thSnr;
+    double thMdp;
+    int nEpochs;
+
+    gtime_t times[MAX_MDP_ROWS];
+    double deltaCp[2][NFREQ][MAX_MDP_ROWS][MAXSAT]; /* first index: 0=rover; 1=reference; second index: frequency index; third index: epochs in the buffer; fourth index: satellite identifier*/
+} mdpStruct;
+
+/* general purpose functions (ionomitigation.c) */
+void DownloadFromFtp(stream_t* str, const char* dlPath, const char* fileName, int deleteOld);
+double* CalculatePPGeo(double obsLat, double obsLon, double h, double* satHorizCoord);
+int SearchOnGeoGrid(double** grid, int nRow, double step, double* ppCoord);
+void ComputeVarCovarMatrix(int ns, int* iuValid, int* irValid, int* hubs, rtk_t* rtk, const obsd_t* obs, double* azel, double* wm, double* wi, double* Rim);
+void MultiplyElementsOnDiagonalOfMatrix(int nv, double* Rim, double* R, double* Rout);
+double** ReadCsv(char* fPpath, int nCol, int* nRow, double* step, int skipFirstRow);
+void SetGterCorrectionStatus(rtk_t* rtk);
+
+/* debugging / logging functions (ionomitigation.c) */
+void StartDebugFile(int crit, double snrTh, double mdpTh);
+void WriteDebugFile(obsd_t* obs, int n, int crit, double snrTh, double mdpTh);
+void WriteDebugMatrix(const char* fileName, int nRows, double* mtrx);
+
+/* MDP weighting related functions (mdpweight.c) */
+void FillMdpStructWithCurrentEpochData(mdpStruct* mdp, const obsd_t* obs, int nObs);
+mdpStruct* InitializeMdpStructure(int mdpType, double thSnr, double thMdp);
+void ShiftMdpStructEpochContent(mdpStruct* mdp);
+void WeightObservablesWithMdp(mdpStruct* mdp, obsd_t* obs, int n, int criterion, double coeff);
+
+/* Koulouri weighting related functions (koulouri.c) */
+void WeightObservableWithKoulouri(const rtk_t* rtk, obsd_t* obs, double* recPos, double* satAzel);
+
+/* Park weighting related functions (park.c) */
+void WeightObservableWithPark(const rtk_t* rtk, obsd_t* obs, double* recPos, double* satAzel);
+
+
+
 /* options functions ---------------------------------------------------------*/
 EXPORT opt_t *searchopt(const char *name, const opt_t *opts);
 EXPORT int str2opt(opt_t *opt, const char *str);
@@ -1749,7 +1887,7 @@ EXPORT int pntpos(const obsd_t *obs, int n, const nav_t *nav,
 /* precise positioning -------------------------------------------------------*/
 EXPORT void rtkinit(rtk_t *rtk, const prcopt_t *opt);
 EXPORT void rtkfree(rtk_t *rtk);
-EXPORT int  rtkpos (rtk_t *rtk, const obsd_t *obs, int nobs, const nav_t *nav);
+EXPORT int  rtkpos (rtk_t *rtk, const obsd_t *obs, int nobs, const nav_t *nav, mdpStruct* mdpStr);
 EXPORT int  rtkopenstat(const char *file, int level);
 EXPORT void rtkclosestat(void);
 EXPORT int  rtkoutstat(rtk_t *rtk, char *buff);

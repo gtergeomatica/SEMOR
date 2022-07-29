@@ -392,6 +392,9 @@ static void procpos(FILE *fp, FILE *fptm, const prcopt_t *popt, const solopt_t *
     obsd_t *obs_ptr = (obsd_t *)malloc(sizeof(obsd_t)*MAXOBS*2); /* for rover and base */
     double rb[3]={0};
     int i,nobs,n,solstatic,num=0,pri[]={6,1,2,3,4,5,1,6};
+    char gridFilePath[MAXSTRPATH];
+    char mapFilePath[MAXSTRPATH];
+    char mapFileName[32];
     
     trace(3,"procpos : mode=%d\n",mode);
     
@@ -402,6 +405,19 @@ static void procpos(FILE *fp, FILE *fptm, const prcopt_t *popt, const solopt_t *
     if (mode==0 || !revs || popt->soltype==2)
         rtkinit(rtk,popt);
     
+    
+    time_t minRif = 0;
+
+    mdpStruct* mdpStr = InitializeMdpStructure(rtk->opt.gter_mdp_nepochs, rtk->opt.gter_mdp_thsnr, rtk->opt.gter_mdp_thmdp);
+    sprintf(gridFilePath, "%s%cgrid.csv", rtk->opt.gter_im_path, FILEPATHSEP);
+    rtk->gterIonoGrid = ReadCsv(gridFilePath, MAX_GRID_COL, &rtk->gterNGridRow, &rtk->gterNGridStep, 1);
+    rtk->gterNextIonoMap = NULL;
+    if (rtk->gterIonoGrid == NULL)
+        printf(" Warning: grid file unavailable (%s)...\r\n", gridFilePath);
+    else
+        printf(" Done\r\n");
+    
+    rtk->gterCurrentIonoMap = NULL;
     rtcm_path[0]='\0';
     
     while ((nobs=inputobs(obs_ptr,rtk->sol.stat,popt))>=0) {
@@ -412,12 +428,53 @@ static void procpos(FILE *fp, FILE *fptm, const prcopt_t *popt, const solopt_t *
                 popt->exsats[obs_ptr[i].sat-1]!=1) obs_ptr[n++]= obs_ptr[i];
         }
         if (n<=0) continue;
+
+        double ep[6];
+        time2epoch(obs_ptr[0].time, ep);
+
+        if (rtk->opt.gter_im_model > 0 && obs_ptr[0].time.time > 0 && ((obs_ptr[0].time.time - minRif) >= 30 && obs_ptr[0].time.time % 60 > 30))
+        {
+            sprintf(mapFileName, "%04d%02d%02d_%02d%02d00.csv", (int)ep[0], (int)ep[1], (int)ep[2], (int)ep[3], (int)ep[4]);
+            int tmpNRows;
+            double tmp;
+
+            sprintf(mapFilePath, "%s%c%s", rtk->opt.gter_im_path, FILEPATHSEP, mapFileName);
+
+            FILE*f=fopen(mapFilePath,"r");
+            if (f!=NULL) {
+                fclose(f);
+                rtk->gterCurrentIonoMap = ReadCsv(mapFilePath, MAX_PARK_PARAMS, &tmpNRows, &tmp, 1);}
+            else if(obs_ptr[0].time.time - minRif >= 80){
+                rtk->gterCurrentIonoMap =NULL;
+            }
+            
+            if (rtk->gterCurrentIonoMap == NULL)
+            {
+                printf("warning: Map file not available! Impossible to apply iono-scintillation mitigation models!\n");
+            }
+            else
+            {
+                minRif = obs_ptr[0].time.time;
+                if (tmpNRows != rtk->gterNGridRow)
+                {
+                    rtk->gterCurrentIonoMap[0][0] = -1.0;
+                    printf("warning: inconsistency between iono-mitigation map and grid formats! Impossible to apply iono-scintillation mitigation models!\n");
+                }
+
+                if (rtk->opt.gter_n_valid_koulouri_risks == 0)
+                {
+                    rtk->gterCurrentIonoMap[0][0] = -1.0;
+                    printf("warning: inconsistency between koulouri breaks and risks! Impossible to apply iono-scintillation mitigation models!\n");
+                }
+            }
+        }
+
         
         /* carrier-phase bias correction */
         if (!strstr(popt->pppopt,"-ENA_FCB")) {
             corr_phase_bias_ssr(obs_ptr,n,&navs);
         }
-        if (!rtkpos(rtk, obs_ptr,n,&navs)) {
+        if (!rtkpos(rtk, obs_ptr,n,&navs, mdpStr)) {
             if (rtk->sol.eventime.time != 0) {
                 if (mode == 0) {
                     outinvalidtm(fptm, sopt, rtk->sol.eventime);

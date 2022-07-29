@@ -16,7 +16,6 @@
 #include <ctype.h>
 #ifdef WIN32
 #include <winsock2.h>
-#include <fcntl.h>
 #else
 #include <unistd.h>
 #include <fcntl.h>
